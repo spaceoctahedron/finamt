@@ -1,6 +1,13 @@
 # Changelog
 
-## Version 0.21.0 (2026-05-31)
+## Version 0.21.0 (2026-06-13)
+
+fix: eric_logs -> correct path to lead to the project's folder
+refactor: put all user's elster related info to the taxpayer panel
+add utils to calculate the 13-digit taxpayer number for all german states
+
+
+## Version 0.20.1 (2026-06-01)
 
 ### Annual Umsatzsteuererklärung (USt 2A) — ELSTER submission via ERiC
 

@@ -1141,7 +1141,9 @@ class ElsterEricClient:
         True → Testmerker included; submission is not legally binding.
         False → PRODUCTION — real filing.
     log_dir:
-        Optional directory for ERiC log output.  Defaults to ``~/.finamt/eric_logs``.
+        Optional directory for ERiC log output.  When ``None`` (default) no log
+        file is written.  The caller should pass a project-specific path to avoid
+        log data leaking between projects (e.g. ``~/.finamt/<project>/eric_logs``).
 
     Usage::
 
@@ -1249,8 +1251,9 @@ class ElsterEricClient:
         if send:
             flags |= ERIC_SENDE
 
-        log_dir = self.log_dir or str(_Path.home() / ".finamt" / "eric_logs")
-        _Path(log_dir).mkdir(parents=True, exist_ok=True)
+        log_dir = self.log_dir
+        if log_dir:
+            _Path(log_dir).mkdir(parents=True, exist_ok=True)
 
         rc: int = 0
         response_xml: bytes = b""

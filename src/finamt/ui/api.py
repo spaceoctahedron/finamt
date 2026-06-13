@@ -1249,7 +1249,8 @@ def post_uste_submit(
             detail="ERiC library path not configured. Set FINAMT_ERIC_HOME environment variable.",
         )
 
-    client = ElsterEricClient(elster_cfg, eric_home=eric_home, use_test=body.use_test)
+    eric_log_dir = str(layout.root / "eric_logs")
+    client = ElsterEricClient(elster_cfg, eric_home=eric_home, use_test=body.use_test, log_dir=eric_log_dir)
 
     try:
         if body.validate_only:
@@ -1630,17 +1631,23 @@ def post_ebilanz_envelope(
 @app.get("/tax/ebilanz/settings", tags=["tax"])
 def get_ebilanz_settings(db: str | None = Query(default=None)):
     """Return all persisted ELSTER settings for this project."""
+    import os as _os
     layout = _resolve_layout(db)
     if not layout.db_path.exists():
-        return {"eric_home": None, "elster_id": None, "cert_pin": None, "hersteller_id": None}
+        eric_home_env = _os.environ.get("FINAMT_ERIC_HOME") or None
+        hersteller_id_env = _os.environ.get("FINAMT_ELSTER_HERSTELLER_ID") or None
+        return {"eric_home": eric_home_env, "elster_id": None, "cert_pin": None, "hersteller_id": hersteller_id_env}
     with _repo(layout.db_path) as repo:
         eric = repo.get_metadata("elster_eric_home") or {}
         misc = repo.get_metadata("elster_misc") or {}
+    # Fall back to environment variables when the project DB has no stored value
+    hersteller_id = misc.get("hersteller_id") or _os.environ.get("FINAMT_ELSTER_HERSTELLER_ID") or None
+    eric_home = eric.get("path") or _os.environ.get("FINAMT_ERIC_HOME") or None
     return {
-        "eric_home": eric.get("path") or None,
+        "eric_home": eric_home,
         "elster_id": misc.get("elster_id") or None,
         "cert_pin": misc.get("cert_pin") or None,
-        "hersteller_id": misc.get("hersteller_id") or None,
+        "hersteller_id": hersteller_id,
     }
 
 
