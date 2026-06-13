@@ -1,10 +1,16 @@
 # Changelog
 
-## Version 0.21.0 (2026-06-13)
+## Version 0.20.2 (2026-06-13)
 
-fix: eric_logs -> correct path to lead to the project's folder
-refactor: put all user's elster related info to the taxpayer panel
-add utils to calculate the 13-digit taxpayer number for all german states
+### ELSTER data consolidation and Steuernummer utilities
+
+- **Fix: ERiC log directory scoped to project** — `eric.log` was written to the global `~/.finamt/eric_logs/` directory, leaking log data across projects and appearing in the database selector. The log path is now derived from the active project layout root (e.g. `~/.finamt/so/eric_logs/`). Both the E-Bilanz and USt/UStVA submission paths are fixed; the fallback to `~/.finamt/eric_logs` in `_run_ust` is removed. `GET /tax/ebilanz/settings` now also falls back to `FINAMT_ELSTER_HERSTELLER_ID` and `FINAMT_ERIC_HOME` environment variables when no project-specific value is stored, so `.env` values are reflected in the UI without a manual save step.
+
+- **Refactor: ELSTER credentials centralised in taxpayer profile** — all ELSTER submission fields (Steuernummer, Finanzamtsnr., Länderkennzeichen, Hersteller-ID, certificate, PIN) that were duplicated inside each tax return panel (UStPanel, JahresabschlussPanel) are removed from those panels. A single **ELSTER-DATEN** collapsible section is added to the taxpayer profile modal ("Bearbeiten"). Credentials are loaded once at the app level via `GET /tax/ebilanz/settings` + `GET /tax/ebilanz/cert` and passed down as an `ElsterSettings` prop, eliminating redundant API calls per panel. The "An ELSTER übermitteln" section in each panel now shows a compact read-only summary of the stored settings with a hint to open the taxpayer profile when data is incomplete.
+
+- **New: 13-digit federal Steuernummer utility (`steuernummer.ts`)** — `finamt-ui/src/utils/steuernummer.ts` implements conversion of a locally-formatted Steuernummer (e.g. `37/539/50531`) to the 13-digit bundeseinheitliche format (e.g. `1137053950531`) for all 16 Bundesländer, including the special-case formats for Bayern (3-digit FA), NRW (4-digit Bezirk + 4-digit UUUU), and the various 2-digit-FA states. Helper functions: `toFederal13()`, `finanzamtNrFromSteuernummer()` (derives the 4-digit Finanzamtsnummer automatically), `bundeslandKzFromState()` (maps free-text state name or abbreviation to the Länderkennzeichen), `is13Digit()`. Finanzamtsnr. and Länder-Kz. fields in the ELSTER-DATEN section are computed and shown read-only — the user never needs to enter them manually.
+
+- **Style: sharp black shadow on all popup / modal / overlay elements** — modal dialogs, dropdowns, and overlay panels now consistently use `border-2 border-black shadow-[4px_4px_0_#000] rounded`, matching the AgentConfig selector style. `shadow-xl` and coloured borders are removed from popup elements. The rule is codified in `.github/copilot-instructions.md`.
 
 
 ## Version 0.20.1 (2026-06-01)

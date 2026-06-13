@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "finamt"
-version = "0.20.1"
+version = "0.20.2"
 description = "An agentic Python library for extracting key information from receipts and preparing essential German tax return statements."
 readme = "README.md"
 license = {text = "AGPL-3.0"}
