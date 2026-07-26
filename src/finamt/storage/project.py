@@ -51,12 +51,14 @@ class ProjectLayout:
     db_path: Path  # root/finamt.db
     pdfs_dir: Path  # root/pdfs/
     debug_dir: Path  # root/debug/
+    submitted_returns_dir: Path  # root/submitted_returns/
 
     def create_dirs(self) -> None:
         """Ensure all project directories exist."""
         self.root.mkdir(parents=True, exist_ok=True)
         self.pdfs_dir.mkdir(parents=True, exist_ok=True)
         self.debug_dir.mkdir(parents=True, exist_ok=True)
+        self.submitted_returns_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def is_default(self) -> bool:
@@ -107,6 +109,7 @@ def layout_from_db_path(db_path: Path) -> ProjectLayout:
         db_path=db_path,
         pdfs_dir=parent / "pdfs",
         debug_dir=parent / "debug",
+        submitted_returns_dir=parent / "submitted_returns",
     )
 
 
@@ -145,6 +148,7 @@ def list_projects() -> list[ProjectLayout]:
                 db_path=db,
                 pdfs_dir=subdir / "pdfs",
                 debug_dir=subdir / "debug",
+                submitted_returns_dir=subdir / "submitted_returns",
             )
         )
 
@@ -164,6 +168,7 @@ def _make_layout(name: str) -> ProjectLayout:
         db_path=root / DB_FILENAME,
         pdfs_dir=root / "pdfs",
         debug_dir=root / "debug",
+        submitted_returns_dir=root / "submitted_returns",
     )
 
 

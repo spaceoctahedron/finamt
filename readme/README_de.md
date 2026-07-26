@@ -29,6 +29,7 @@ Eine agentische Python-Bibliothek zur strukturierten Extraktion von Daten aus Be
 - **Lokal & Offline** — Alles läuft vollständig offline; Modelle werden automatisch von HuggingFace heruntergeladen und lokal gecacht, Daten werden in einer lokalen Datenbank gespeichert
 - **4-Agenten-Pipeline** — Vier sequenzielle, spezialisierte Agenten für Metadaten, Geschäftspartner, Beträge und Positionen; kurze, fokussierte Prompts für zuverlässige Leistung mit lokalen Modellen
 - **Web-Oberfläche** — Vollständige Browseroberfläche zum Hochladen, Prüfen, Bearbeiten und Verwalten von Belegen
+- **ELSTER-Übermittlung** — Umsatzsteuerjahreserklärung (USt 2A), E-Bilanz und UStVA werden direkt über die offizielle ERiC-Bibliothek ans Finanzamt übermittelt; Ende-zu-Ende-Funktionalität durch Eingangsbestätigung des Finanzamts belegt
 
 ## Technologie-Stack
 

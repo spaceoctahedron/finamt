@@ -28,7 +28,8 @@ An agentic Python library for extracting structured data from receipts and invoi
 - **German Tax Alignment** — Category taxonomy and VAT handling aligned with German fiscal practice
 - **Local-First** — Everything runs completely offline; models are auto-downloaded from HuggingFace and cached locally, data is stored in a local database
 - **4-Agent Pipeline** — Sequential specialised agents for metadata, counterparty, amounts, and line items; short focused prompts for reliable local model performance
-- **Web UI** — Full browser interface for uploading, reviewing, editing, and managing receipts and invoices and preparing tax returns 
+- **Web UI** — Full browser interface for uploading, reviewing, editing, and managing receipts and invoices and preparing tax returns
+- **ELSTER submission** — Annual Umsatzsteuererklärung (USt), E-Bilanz, and UStVA submitted directly to the Finanzamt via the official ERiC library; confirmed working end-to-end with a formal Finanzamt acknowledgement
 
 ## Tech Stack
 

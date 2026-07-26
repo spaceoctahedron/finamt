@@ -540,6 +540,23 @@ def remove_submission(
     return {"removed": before - len(records), "total": len(records)}
 
 
+@app.get("/submissions/file", tags=["projects"])
+def get_submission_file(filename: str = Query(...), db: str | None = Query(default=None)):
+    """Return the contents of a saved submitted-return XML by filename."""
+    from fastapi.responses import Response as _Resp
+
+    layout = _resolve_layout(db)
+    file_path = layout.submitted_returns_dir / filename
+    # Security: ensure the resolved path is inside submitted_returns_dir
+    try:
+        file_path.resolve().relative_to(layout.submitted_returns_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found.")
+    return _Resp(content=file_path.read_bytes(), media_type="text/xml; charset=UTF-8")
+
+
 # ---------------------------------------------------------------------------
 # Geocode cache  (stored in project_metadata under the key "geocode_cache")
 # Maps query strings → [lat, lon] or null; persisted so Nominatim is only
@@ -1265,22 +1282,40 @@ def post_uste_submit(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    # Persist a submission record on success
-    if result.success and db_path.exists():
-        with _repo(db_path) as _r:
-            _records = _r.get_metadata("submissions") or []
-            import datetime as _dt
+    import datetime as _dt
 
-            _records.append(
-                {
-                    "type": "uste",
-                    "year": year,
-                    "submitted_at": _dt.datetime.utcnow().isoformat(),
-                    "telenummer": result.telenummer,
-                    "use_test": body.use_test,
-                }
+    xml_filename: str | None = None
+
+    # On success: save a copy of the submitted XML and record the submission
+    if result.success:
+        # Build the XML for archiving (same builder as used internally by submit_ust)
+        try:
+            from finamt.tax.elster import ElsterXMLBuilder as _Builder
+            _xml_bytes = _Builder(elster_cfg).build_ustva(
+                report, year=year, period=0, use_test=body.use_test
             )
-            _r.set_metadata("submissions", _records)
+            layout.submitted_returns_dir.mkdir(parents=True, exist_ok=True)
+            _ts = _dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            _mode = "test" if body.use_test else "prod"
+            xml_filename = f"USt_{year}_{_ts}_{_mode}.xml"
+            (layout.submitted_returns_dir / xml_filename).write_bytes(_xml_bytes)
+        except Exception:
+            xml_filename = None  # non-fatal — submission already succeeded
+
+        if db_path.exists():
+            with _repo(db_path) as _r:
+                _records = _r.get_metadata("submissions") or []
+                _records.append(
+                    {
+                        "type": "uste",
+                        "year": year,
+                        "submitted_at": _dt.datetime.utcnow().isoformat(),
+                        "telenummer": result.telenummer,
+                        "use_test": body.use_test,
+                        "xml_filename": xml_filename,
+                    }
+                )
+                _r.set_metadata("submissions", _records)
 
     return {
         "success": result.success,
@@ -1288,6 +1323,7 @@ def post_uste_submit(
         "error_code": result.error_code,
         "error_message": result.error_message,
         "use_test": body.use_test,
+        "xml_filename": xml_filename,
     }
 
 

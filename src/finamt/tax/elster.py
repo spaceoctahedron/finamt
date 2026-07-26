@@ -695,36 +695,42 @@ class ElsterXMLBuilder:
             etree.SubElement(abz_sum, _e("E3006901")).text = _dec(input_vat)
 
         # Berech_USt — calculation cross-reference section
-        # E3009201 (Zeile 102) = output VAT transferred from Ums_Sum; always written,
-        #   even as 0,00 when there are no sales. The ELSTER portal always sends this
-        #   field regardless of whether a Umsaetze section exists.
-        # E3009801 (Zeile 107) = Zwischensumme; always written alongside E3009201.
-        #   ERiC rule 30905/30452: if E3009801 is present, E3009201 must also be present.
-        #   Writing both as 0,00 when output_vat=0 matches what the ELSTER portal does.
+        # E3009201 (Zeile 102) = output VAT transferred from Ums_Sum.
+        #   ERiC rule 30452: only write E3009201/E3009801 when output_vat > 0.
+        #   Writing "0,00" when there is no Umsaetze section causes 30452 because ERiC
+        #   treats a zero E3009201 as "not filled" while E3009801 is "present".
+        # E3009801 (Zeile 107) = Zwischensumme; only written alongside a non-zero E3009201.
         # E3009701/E3010001 are §15a adjustment fields — omitted unless §15a data exists.
         if output_vat > 0 or input_vat > 0:
             berech = etree.SubElement(ust2a, _e("Berech_USt"))
             tab_b = etree.SubElement(berech, _e("Tabelle")) if _use_tabelle else berech
-            # Always write Zeile 102 + Zeile 107 (both 0,00 when no sales)
-            etree.SubElement(tab_b, _e("E3009201")).text = _dec(output_vat)
-            etree.SubElement(tab_b, _e("E3009801")).text = _dec(output_vat)
+            # Zeile 102 + Zeile 107: only present when there is output VAT
+            if output_vat > 0:
+                etree.SubElement(tab_b, _e("E3009201")).text = _dec(output_vat)
+                etree.SubElement(tab_b, _e("E3009801")).text = _dec(output_vat)
             if input_vat > 0:
                 etree.SubElement(tab_b, _e("E3009901")).text = _dec(input_vat)
             etree.SubElement(tab_b, _e("E3010201")).text = _dec(net)
-            # Zeile 115 (E3010401) = Überschuss when net < 0
-            # Zeile 116 (E3010501) = zu entrichtende USt when net > 0
-            # ERiC rules 30910/30914 require the corresponding field to be present
-            if net < 0:
-                # E3010401 is typed DezimalzahlNichtNeg — must be the absolute value;
-                # ERiC rejects negative values and treats the field as absent (→ 30910/30914).
-                etree.SubElement(tab_b, _e("E3010401")).text = _dec(abs(net))
-            elif net > 0:
-                etree.SubElement(tab_b, _e("E3010501")).text = _dec(net)
+            # E3010601 = "Umsatzsteuer/Überschuss (bei Überschuss Minuszeichen voranstellen)"
+            # This is the single signed field covering both:
+            #   - Zeile 115 (Überschuss/Erstattung) when net < 0  → negative value
+            #   - Zeile 116 (zu entrichtende USt)   when net > 0  → positive value
+            # Confirmed by accepted 2022 submission (E3010601 = −2.181,70) and the E50
+            # schema docs (ERiC-44/Dokumentation/…/E50-2021.html).
+            # NOTE: E3010401 = §17 Abs. 1 Satz 7 UStG adjustment (not Zeile 115).
+            #       E3010501 = §19 Abs. 1 UStG Kleinunternehmer field (not Zeile 116).
+            # ERiC rules 30910/30914 fire when Verbl_USt/E3010201 is present but
+            # E3010601 is absent — always write it whenever net ≠ 0.
+            if net != 0:
+                etree.SubElement(tab_b, _e("E3010601")).text = _dec(net)
             verbl = etree.SubElement(tab_b, _e("Verbl_USt"))
             etree.SubElement(verbl, _e("E3011101")).text = _dec(net)
             etree.SubElement(verbl, _e("E3011301")).text = _dec(vorausz)
             zahl = etree.SubElement(tab_b, _e("Zahl_Erstatt"))
             etree.SubElement(zahl, _e("E3011401")).text = _dec(abschluss)
+
+        # Vorsatz must follow all data sections (schema: USt2A?, ..., Vorsatz?)
+        e50.append(vor)
 
 
 # ---------------------------------------------------------------------------
@@ -1260,16 +1266,25 @@ class ElsterEricClient:
         server_xml: bytes = b""
         eric_text: str = ""
         try:
+            import contextlib as _contextlib
             with EricSession(self.eric_home, log_dir=log_dir) as eric:
                 with EricBuffer(eric) as resp_buf, EricBuffer(eric) as srv_buf:
-                    with EricCertificate(
-                        eric, str(self.config.cert_path), self.config.cert_password
-                    ) as cert:
+                    # ERiC error 610001027: crypto_params must be NULL when
+                    # Bearbeitungsflags = VALIDIERE only (without SENDE).
+                    # Only load the certificate context manager when actually sending.
+                    _cert_cm = (
+                        EricCertificate(
+                            eric, str(self.config.cert_path), self.config.cert_password
+                        )
+                        if send
+                        else _contextlib.nullcontext()
+                    )
+                    with _cert_cm as cert:
                         rc, _th = eric.bearbeite_vorgang(
                             xml_bytes=envelope_xml,
                             datenart_version=datenart_version,
                             flags=flags,
-                            crypto_params=cert.verschluesselungs_parameter,
+                            crypto_params=cert.verschluesselungs_parameter if send else None,
                             response_buffer=resp_buf.handle(),
                             server_buffer=srv_buf.handle(),
                         )
@@ -1360,16 +1375,24 @@ class ElsterEricClient:
         # 4. Invoke ERiC
         eric_text: str = ""
         try:
+            import contextlib as _contextlib
             with EricSession(self.eric_home, log_dir=self.log_dir) as eric:
                 with EricBuffer(eric) as resp_buf, EricBuffer(eric) as srv_buf:
-                    with EricCertificate(
-                        eric, str(self.config.cert_path), self.config.cert_password
-                    ) as cert:
+                    # ERiC error 610001027: crypto_params must be NULL when
+                    # Bearbeitungsflags = VALIDIERE only (without SENDE).
+                    _cert_cm = (
+                        EricCertificate(
+                            eric, str(self.config.cert_path), self.config.cert_password
+                        )
+                        if send
+                        else _contextlib.nullcontext()
+                    )
+                    with _cert_cm as cert:
                         rc, _th = eric.bearbeite_vorgang(
                             xml_bytes=envelope_xml,
                             datenart_version=EBilanzEnvelopeBuilder.DATENART_VERSION,
                             flags=flags,
-                            crypto_params=cert.verschluesselungs_parameter,
+                            crypto_params=cert.verschluesselungs_parameter if send else None,
                             response_buffer=resp_buf.handle(),
                             server_buffer=srv_buf.handle(),
                         )

@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 0.21.2 (2026-07-26)
+
+### Milestone: end-to-end ELSTER submission confirmed
+
+The annual Umsatzsteuererklärung was submitted directly from the finamt UI to the Finanzamt via ERiC. The Finanzamt acknowledged receipt with a formal confirmation letter — the first fully automated tax submission produced by finamt.
+
+Additional UX hardening shipped alongside:
+- Re-submit guard: UStPanel now fetches existing submissions on load and warns before a second real (non-test) transmission.
+- Submitted XML is automatically archived in `submitted_returns/` and can be viewed later from the returns overview.
+- Returns overview refreshes immediately after a submission without a page reload.
+
+
 ## Version 0.20.2 (2026-06-13)
 
 ### ELSTER data consolidation and Steuernummer utilities
