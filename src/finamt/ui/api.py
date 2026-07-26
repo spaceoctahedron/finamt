@@ -1101,6 +1101,326 @@ def get_ustva(
 
 
 # ---------------------------------------------------------------------------
+# UStVA — Voranmeldung submit / XML preview (quarterly and monthly)
+# ---------------------------------------------------------------------------
+
+
+class UStVASubmitRequest(BaseModel):
+    year: int
+    quarter: int | None = None   # 1–4 (mutually exclusive with month)
+    month: int | None = None     # 1–12 (mutually exclusive with quarter)
+    steuernummer: str = ""
+    bundesland_kz: str = ""
+    finanzamt_nr: str = ""
+    hersteller_id: str = ""
+    cert_path: str | None = None
+    cert_data_b64: str | None = None
+    cert_password: str | None = None
+    use_test: bool = True
+    validate_only: bool = False
+    is_berichtigung: bool = False
+    company_name: str = ""
+    street: str = ""
+    house_number: str = ""
+    postal_code: str = ""
+    city: str = ""
+
+
+def _ustva_period_info(
+    year: int, quarter: int | None, month: int | None
+) -> tuple[int, "date", "date", str]:
+    """Return (eric_period, start, end, submission_type_key)."""
+    from datetime import date as _d
+    import calendar
+
+    if month:
+        eric_period = month  # 1–12
+        start = _d(year, month, 1)
+        end = _d(year, month, calendar.monthrange(year, month)[1])
+        sub_type = f"ustva_m{month:02d}"
+    elif quarter:
+        eric_period = 40 + quarter  # 41–44
+        q_starts = {1: (1, 1), 2: (4, 1), 3: (7, 1), 4: (10, 1)}
+        q_ends = {1: (3, 31), 2: (6, 30), 3: (9, 30), 4: (12, 31)}
+        ms, ds = q_starts[quarter]
+        me, de = q_ends[quarter]
+        start = _d(year, ms, ds)
+        end = _d(year, me, de)
+        sub_type = f"ustva_q{quarter}"
+    else:
+        raise ValueError("Either quarter or month must be specified")
+    return eric_period, start, end, sub_type
+
+
+@app.post("/tax/ustva/submit", tags=["tax"])
+def post_ustva_submit(
+    body: UStVASubmitRequest,
+    db: str | None = Query(default=None),
+):
+    """
+    Build, sign, and transmit a UStVA (quarterly or monthly VAT pre-return)
+    via the ERiC library.  Set use_test=false for legally binding filings.
+    """
+    import base64 as _b64
+    import datetime as _dt
+    import os as _os
+
+    if not _LIB_AVAILABLE:
+        raise HTTPException(status_code=503, detail="finamt library not available")
+
+    if not body.quarter and not body.month:
+        raise HTTPException(status_code=400, detail="Provide either 'quarter' (1-4) or 'month' (1-12).")
+
+    from finamt.tax.elster import ElsterConfig, ElsterEricClient
+
+    year = body.year
+    layout = _resolve_layout(db)
+    db_path = layout.db_path
+
+    try:
+        eric_period, start, end, sub_type = _ustva_period_info(year, body.quarter, body.month)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    receipts = []
+    if db_path.exists():
+        with _repo(db_path) as repo:
+            receipts = list(repo.find_by_period(start, end))
+    report = generate_ustva(receipts, start, end)
+
+    # ── Resolve cert ──────────────────────────────────────────────────
+    stored_cert = layout.root / "elster_cert.pfx"
+    cert_path = body.cert_path or _os.path.expanduser(
+        _os.environ.get("FINAMT_ELSTER_CERT_PATH") or ""
+    )
+    cert_password = body.cert_password or _os.environ.get("FINAMT_ELSTER_CERT_PASSWORD", "")
+
+    if body.cert_data_b64:
+        raw_cert = _b64.b64decode(body.cert_data_b64)
+        layout.create_dirs()
+        stored_cert.write_bytes(raw_cert)
+        cert_path = str(stored_cert)
+
+    if not cert_path and stored_cert.exists():
+        cert_path = str(stored_cert)
+
+    if not cert_path:
+        raise HTTPException(
+            status_code=400,
+            detail="ELSTER certificate not configured. Upload a .pfx file or set FINAMT_ELSTER_CERT_PATH.",
+        )
+
+    # ── Resolve ELSTER params ─────────────────────────────────────────
+    steuernummer = body.steuernummer or _os.environ.get("FINAMT_ELSTER_STEUERNUMMER", "")
+    finanzamt_nr = body.finanzamt_nr or _os.environ.get("FINAMT_ELSTER_FINANZAMT_NR", "")
+    bundesland_kz = body.bundesland_kz or _os.environ.get("FINAMT_ELSTER_BUNDESLAND_KZ", "")
+    hersteller_id = body.hersteller_id or _os.environ.get("FINAMT_ELSTER_HERSTELLER_ID", "")
+
+    if not hersteller_id and db_path.exists():
+        with _repo(db_path) as _r:
+            _misc = _r.get_metadata("elster_misc") or {}
+        hersteller_id = _misc.get("hersteller_id") or ""
+
+    if not hersteller_id:
+        raise HTTPException(
+            status_code=400,
+            detail="ELSTER Hersteller-ID not configured. Set FINAMT_ELSTER_HERSTELLER_ID or pass hersteller_id in the request.",
+        )
+
+    if not bundesland_kz and db_path.exists():
+        from finamt.tax.elster import bundesland_kz_from_city as _bkz
+        with _repo(db_path) as _r:
+            _tp = _r.get_metadata("taxpayer") or {}
+        for _field in ("state", "city"):
+            _kz = _bkz(_tp.get(_field) or "")
+            if _kz:
+                bundesland_kz = _kz
+                break
+
+    company_name = body.company_name
+    street = body.street
+    house_number = body.house_number
+    postal_code = body.postal_code
+    city = body.city
+    if db_path.exists() and not all([company_name, street, postal_code, city]):
+        with _repo(db_path) as _r:
+            _tp2 = _r.get_metadata("taxpayer") or {}
+        company_name = company_name or _tp2.get("name") or ""
+        street = street or _tp2.get("street") or ""
+        house_number = house_number or ""
+        postal_code = postal_code or _tp2.get("postcode") or ""
+        city = city or _tp2.get("city") or ""
+        if not steuernummer:
+            steuernummer = _tp2.get("tax_number") or ""
+
+    from decimal import Decimal as _Decimal
+
+    elster_cfg = ElsterConfig(
+        cert_path=cert_path,
+        cert_password=cert_password,
+        steuernummer=steuernummer,
+        finanzamt_nr=finanzamt_nr,
+        bundesland_kz=bundesland_kz,
+        hersteller_id=hersteller_id,
+        company_name=company_name,
+        street=street,
+        house_number=house_number,
+        postal_code=postal_code,
+        city=city,
+    )
+
+    eric_home = _os.environ.get("FINAMT_ERIC_HOME", "")
+    if not eric_home and db_path.exists():
+        with _repo(db_path) as _r:
+            _em = _r.get_metadata("elster_eric_home") or {}
+        eric_home = _em.get("path") or ""
+    if not eric_home:
+        raise HTTPException(
+            status_code=400,
+            detail="ERiC library path not configured. Set FINAMT_ERIC_HOME environment variable.",
+        )
+
+    eric_log_dir = str(layout.root / "eric_logs")
+    client = ElsterEricClient(elster_cfg, eric_home=eric_home, use_test=body.use_test, log_dir=eric_log_dir)
+
+    try:
+        if body.validate_only:
+            result = client.validate_ust(report, year=year, period=eric_period, is_berichtigung=body.is_berichtigung)
+            return {
+                "success": result.success,
+                "validate_only": True,
+                "message": result.error_message or "ERiC validation passed — not submitted.",
+                "error_code": result.error_code,
+            }
+        result = client.submit_ust(report, year=year, period=eric_period, is_berichtigung=body.is_berichtigung)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    xml_filename: str | None = None
+
+    if result.success:
+        try:
+            from finamt.tax.elster import ElsterXMLBuilder as _Builder
+            _xml_bytes = _Builder(elster_cfg).build_ustva(
+                report, year, eric_period, is_berichtigung=body.is_berichtigung, use_test=body.use_test
+            )
+            layout.submitted_returns_dir.mkdir(parents=True, exist_ok=True)
+            _ts = _dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            _mode = "test" if body.use_test else "prod"
+            _period_label = f"Q{body.quarter}" if body.quarter else f"M{body.month:02d}"
+            xml_filename = f"UStVA_{year}_{_period_label}_{_ts}_{_mode}.xml"
+            (layout.submitted_returns_dir / xml_filename).write_bytes(_xml_bytes)
+        except Exception:
+            xml_filename = None
+
+        if db_path.exists():
+            with _repo(db_path) as _r:
+                _records = _r.get_metadata("submissions") or []
+                _records.append({
+                    "type": sub_type,
+                    "year": year,
+                    "submitted_at": _dt.datetime.utcnow().isoformat(),
+                    "telenummer": result.telenummer,
+                    "use_test": body.use_test,
+                    "xml_filename": xml_filename,
+                })
+                _r.set_metadata("submissions", _records)
+
+    return {
+        "success": result.success,
+        "telenummer": result.telenummer,
+        "error_code": result.error_code,
+        "error_message": result.error_message,
+        "use_test": body.use_test,
+        "xml_filename": xml_filename,
+    }
+
+
+@app.post("/tax/ustva/xml", tags=["tax"])
+def post_ustva_xml(
+    body: UStVASubmitRequest,
+    db: str | None = Query(default=None),
+):
+    """Build and return the UStVA XML (no submission)."""
+    import os as _os
+
+    if not _LIB_AVAILABLE:
+        raise HTTPException(status_code=503, detail="finamt library not available")
+    if not body.quarter and not body.month:
+        raise HTTPException(status_code=400, detail="Provide either 'quarter' or 'month'.")
+
+    from fastapi.responses import Response
+    from finamt.tax.elster import ElsterConfig, ElsterXMLBuilder
+
+    year = body.year
+    layout = _resolve_layout(db)
+    db_path = layout.db_path
+
+    try:
+        eric_period, start, end, _ = _ustva_period_info(year, body.quarter, body.month)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    receipts = []
+    if db_path.exists():
+        with _repo(db_path) as r:
+            receipts = list(r.find_by_period(start, end))
+    report = generate_ustva(receipts, start, end)
+
+    cert_path = body.cert_path or _os.path.expanduser(_os.environ.get("FINAMT_ELSTER_CERT_PATH") or "")
+    cert_password = body.cert_password or _os.environ.get("FINAMT_ELSTER_CERT_PASSWORD", "")
+    steuernummer = body.steuernummer or _os.environ.get("FINAMT_ELSTER_STEUERNUMMER", "")
+    finanzamt_nr = body.finanzamt_nr or _os.environ.get("FINAMT_ELSTER_FINANZAMT_NR", "")
+    bundesland_kz = body.bundesland_kz or _os.environ.get("FINAMT_ELSTER_BUNDESLAND_KZ", "")
+    hersteller_id = body.hersteller_id or _os.environ.get("FINAMT_ELSTER_HERSTELLER_ID", "")
+
+    if not bundesland_kz and db_path.exists():
+        from finamt.tax.elster import bundesland_kz_from_city as _bkz
+        with _repo(db_path) as _r:
+            _tp = _r.get_metadata("taxpayer") or {}
+        for _f in ("state", "city"):
+            _kz = _bkz(_tp.get(_f) or "")
+            if _kz:
+                bundesland_kz = _kz
+                break
+
+    company_name, street, house_number, postal_code, city = (
+        body.company_name, body.street, body.house_number, body.postal_code, body.city
+    )
+    if db_path.exists() and not all([company_name, street, postal_code, city]):
+        with _repo(db_path) as _r:
+            _tp2 = _r.get_metadata("taxpayer") or {}
+        company_name = company_name or _tp2.get("name") or ""
+        street = street or _tp2.get("street") or ""
+        postal_code = postal_code or _tp2.get("postcode") or ""
+        city = city or _tp2.get("city") or ""
+        if not steuernummer:
+            steuernummer = _tp2.get("tax_number") or ""
+
+    elster_cfg = ElsterConfig(
+        cert_path=cert_path or "",
+        cert_password=cert_password,
+        steuernummer=steuernummer,
+        finanzamt_nr=finanzamt_nr,
+        bundesland_kz=bundesland_kz,
+        hersteller_id=hersteller_id or "00000",
+        company_name=company_name,
+        street=street,
+        house_number=house_number,
+        postal_code=postal_code,
+        city=city,
+    )
+    try:
+        xml_bytes = ElsterXMLBuilder(elster_cfg).build_ustva(
+            report, year, eric_period, is_berichtigung=body.is_berichtigung, use_test=body.use_test
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return Response(content=xml_bytes, media_type="text/xml; charset=UTF-8")
+
+
+# ---------------------------------------------------------------------------
 # UStE — Umsatzsteuerjahreserklärung (annual VAT return, period=0 / Zeitraum 00)
 # ---------------------------------------------------------------------------
 
