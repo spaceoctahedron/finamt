@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 FINAMT_HOME = Path.home() / ".finamt"
@@ -51,7 +51,11 @@ class ProjectLayout:
     db_path: Path  # root/finamt.db
     pdfs_dir: Path  # root/pdfs/
     debug_dir: Path  # root/debug/
-    submitted_returns_dir: Path  # root/submitted_returns/
+    submitted_returns_dir: Path | None = field(default=None)  # root/submitted_returns/
+
+    def __post_init__(self) -> None:
+        if self.submitted_returns_dir is None:
+            object.__setattr__(self, "submitted_returns_dir", self.root / "submitted_returns")
 
     def create_dirs(self) -> None:
         """Ensure all project directories exist."""

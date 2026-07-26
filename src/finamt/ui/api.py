@@ -551,7 +551,7 @@ def get_submission_file(filename: str = Query(...), db: str | None = Query(defau
     try:
         file_path.resolve().relative_to(layout.submitted_returns_dir.resolve())
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid filename.")
+        raise HTTPException(status_code=400, detail="Invalid filename.") from None
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found.")
     return _Resp(content=file_path.read_bytes(), media_type="text/xml; charset=UTF-8")

@@ -382,8 +382,9 @@ Every receipt is tagged with a category and optional subcategory. Categories map
 **ELSTER transmission**
 - [x] UStVA — ELSTER XML builder + Kennzahlen mapper + RSA signing + HTTP submission
 - [x] E-Bilanz — XBRL instance document (HGB taxonomy v6, MicroBilG schema)
-- [ ] E-Bilanz — ERiC ctypes bridge for actual transmission
-- [ ] KSt, GewSt, UStVA, USt — ELSTER XML builder
+- [x] E-Bilanz — ERiC ctypes bridge for actual transmission
+- [x] USt — ELSTER XML builder + ERiC ctypes submission (confirmed end-to-end)
+- [ ] KSt, GewSt, UStVA — ELSTER XML builder
 - [ ] EÜR, ESt — ELSTER XML builder
 
 **Validation**
