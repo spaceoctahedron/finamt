@@ -5,8 +5,10 @@ ELSTER XML submission for German tax filings.
 
 Supported form types:
   - UStVA  (Umsatzsteuer-Voranmeldung)   — VAT pre-return
+  - USt    (Umsatzsteuerjahreserklärung) — annual VAT return (E50)
+  - E-Bilanz (§ 5b EStG)                 — XBRL Jahresabschluss
+  - KSt    (Körperschaftsteuererklärung) — corporate income tax (E30)
   - EÜR    (Einnahmen-Überschuss-Rechnung) — planned
-  - E-Bilanz                              — planned
 
 ELSTER transmission overview:
   1. Build the payload XML (NutzdatenXML) for the specific form.
@@ -844,6 +846,172 @@ class ElsterXMLBuilder:
         # Vorsatz must follow all data sections (schema: USt2A?, ..., Vorsatz?)
         e50.append(vor)
 
+    # ------------------------------------------------------------------
+    # E30 — Körperschaftsteuererklärung (annual KSt)
+    # ------------------------------------------------------------------
+
+    def build_kst(
+        self,
+        report: "KStReport",
+        year: int,
+        use_test: bool = True,
+    ) -> bytes:
+        """
+        Build the ELSTER XML envelope for a Körperschaftsteuererklärung (E30).
+
+        Parameters
+        ----------
+        report:
+            :class:`~finamt.tax.kst.KStReport` with tax-year figures.
+        year:
+            Veranlagungsjahr, e.g. 2024.
+        use_test:
+            True → include Testmerker (test submission, not legally binding).
+
+        Returns
+        -------
+        bytes
+            UTF-8 encoded ELSTER XML ready for ERiC ``bearbeite_vorgang``.
+
+        Notes
+        -----
+        The Körperschaftsteuererklärung (form E30) is submitted under
+        Verfahren ``ElsterErklaerung`` / DatenArt ``KSt``.
+
+        The E30 form carries dozens of optional schedules.  This builder
+        covers the **core computation** — zu versteuerndes Einkommen, KSt,
+        and SolZ.  For complex cases (foreign income, trade-tax add-back,
+        § 8b KStG dividend exemptions, etc.) extend the Nutzdaten payload
+        by passing additional *anlagen_xml* or subclassing this builder.
+
+        ⚠  Always test against the ELSTER test environment first.
+        ⚠  Kennzahlen change annually — verify against the current official
+           E30 form at www.elster.de / ERiC schema documentation.
+        """
+        from .kst import KStReport as _KStReport  # local import to avoid circular
+
+        ticket = _make_ticket()
+        steuernr = normalise_steuernummer(self.config.steuernummer, self.config.bundesland_kz)
+        if len(steuernr) != 13:
+            raise ValueError(
+                f"Cannot normalise Steuernummer '{self.config.steuernummer}' to 13 digits. "
+                "Pass bundesland_kz or supply the 13-digit ELSTER form directly."
+            )
+        bund_kz = self.config.bundesland_kz or steuernr[:2]
+        # BUFA = first 4 digits of the 13-digit normalised steuernummer
+        fa_nr = steuernr[:4]
+
+        cfg = self.config
+
+        def _t(tag: str) -> str:
+            return f"{{{NS}}}{tag}"
+
+        root = etree.Element(_t("Elster"), nsmap={None: NS})
+
+        # ── TransferHeader ────────────────────────────────────────────
+        th = etree.SubElement(root, _t("TransferHeader"), version="11")
+        etree.SubElement(th, _t("Verfahren")).text = "ElsterErklaerung"
+        etree.SubElement(th, _t("DatenArt")).text = "KSt"
+        etree.SubElement(th, _t("Vorgang")).text = "send-Auth"
+        etree.SubElement(th, _t("TransferTicket")).text = ticket
+        if use_test:
+            etree.SubElement(th, _t("Testmerker")).text = TESTMERKER
+        emp_th = etree.SubElement(th, _t("Empfaenger"), id="L")
+        etree.SubElement(emp_th, _t("Ziel")).text = _bundesland_ziel(bund_kz)
+        etree.SubElement(th, _t("HerstellerID")).text = cfg.hersteller_id
+        etree.SubElement(th, _t("DatenLieferant")).text = steuernr
+        datei = etree.SubElement(th, _t("Datei"))
+        etree.SubElement(datei, _t("Verschluesselung")).text = "CMSEncryptedData"
+        etree.SubElement(datei, _t("Kompression")).text = "GZIP"
+        etree.SubElement(datei, _t("TransportSchluessel"))
+
+        # ── DatenTeil ─────────────────────────────────────────────────
+        dt = etree.SubElement(root, _t("DatenTeil"))
+        ndb = etree.SubElement(dt, _t("Nutzdatenblock"))
+        ndh = etree.SubElement(ndb, _t("NutzdatenHeader"), version="11")
+        etree.SubElement(ndh, _t("NutzdatenTicket")).text = ticket
+        etree.SubElement(ndh, _t("Empfaenger"), id="F").text = fa_nr
+
+        nd = etree.SubElement(ndb, _t("Nutzdaten"))
+
+        # ── E30 payload ───────────────────────────────────────────────
+        e30_ns = f"http://finkonsens.de/elster/elstererklaerung/kst/e30/v{year}"
+
+        def _e(tag: str) -> str:
+            return f"{{{e30_ns}}}{tag}"
+
+        def _dec(v: Decimal) -> str:
+            return str(v.quantize(Decimal("0.01"))).replace(".", ",")
+
+        def _int_str(v: Decimal) -> str:
+            return str(int(v.to_integral_value(rounding=ROUND_DOWN)))
+
+        e30 = etree.SubElement(nd, _e("E30"), nsmap={None: e30_ns}, version=str(year))
+
+        # ── Vorsatz ───────────────────────────────────────────────────
+        vor = etree.SubElement(e30, _e("Vorsatz"))
+        etree.SubElement(vor, _e("Unterfallart")).text = "30"
+        etree.SubElement(vor, _e("Vorgang")).text = "01" if not report.is_berichtigung else "02"
+        etree.SubElement(vor, _e("StNr")).text = steuernr
+        etree.SubElement(vor, _e("Zeitraum")).text = str(year)
+        etree.SubElement(vor, _e("AbsName")).text = (
+            report.company_name or steuernr
+        ).strip()[:45]
+        abs_str = f"{cfg.street} {cfg.house_number}".strip()[:30]
+        etree.SubElement(vor, _e("AbsStr")).text = abs_str or "—"
+        etree.SubElement(vor, _e("AbsPlz")).text = (cfg.postal_code or "00000")[:5]
+        etree.SubElement(vor, _e("AbsOrt")).text = (cfg.city or "—")[:29]
+        etree.SubElement(vor, _e("Copyright")).text = "finamt"
+        etree.SubElement(vor, _e("OrdNrArt")).text = "S"
+        rueck = etree.SubElement(vor, _e("Rueckuebermittlung"))
+        # Bescheid=2: no Bescheid download
+        etree.SubElement(rueck, _e("Bescheid")).text = "2"
+
+        # ── KSt_1 — core body ─────────────────────────────────────────
+        # The E30 main data section is wrapped in a KSt_1 element.
+        # The mandatory Allgemein sub-section carries the company name / type.
+        kst1 = etree.SubElement(e30, _e("KSt_1"))
+
+        allg = etree.SubElement(kst1, _e("Allgemein"))
+        # E4000901: Name / Firma der Körperschaft
+        etree.SubElement(allg, _e("E4000901")).text = (
+            report.company_name or ""
+        ).strip()[:45]
+        # E4001801: Rechtsform
+        etree.SubElement(allg, _e("E4001801")).text = report.rechtsform.strip()[:30]
+        # E4300001: Wirtschaftsjahr (Veranlagungszeitraum)
+        etree.SubElement(allg, _e("E4300001")).text = str(year)
+
+        # ── Einkommen — taxable income ─────────────────────────────────
+        eink = etree.SubElement(kst1, _e("Einkommen"))
+        zvE = report.zvE.quantize(Decimal("1"), rounding=ROUND_DOWN)
+        # E4500001: Gesamtbetrag der Einkünfte / zu versteuerndes Einkommen
+        # Written as whole euros (Ganzzahl).  Negative value = Verlust (loss).
+        etree.SubElement(eink, _e("E4500001")).text = _int_str(zvE)
+
+        # ── Steuerfestsetzung — tax computation ───────────────────────
+        stfest = etree.SubElement(kst1, _e("Steuerfestsetzung"))
+        # E4600001: Körperschaftsteuer (§ 23 KStG)
+        etree.SubElement(stfest, _e("E4600001")).text = _dec(report.kst)
+        # E4700001: Solidaritätszuschlag
+        etree.SubElement(stfest, _e("E4700001")).text = _dec(report.soli)
+
+        # ── Vorauszahlungen / Abschlusszahlung ───────────────────────
+        if report.prepayments != 0:
+            vorz = etree.SubElement(kst1, _e("Vorauszahlungen"))
+            etree.SubElement(vorz, _e("E4800001")).text = _dec(report.prepayments)
+
+        # Verbleibende Zahllast / Erstattung
+        remaining = report.remaining
+        if remaining != 0:
+            abschl = etree.SubElement(kst1, _e("Abschluss"))
+            etree.SubElement(abschl, _e("E4900001")).text = _dec(remaining)
+
+        # Vorsatz must trail the data sections in the E30 schema
+        e30.append(vor)
+
+        return etree.tostring(root, xml_declaration=True, encoding="UTF-8", pretty_print=True)
+
 
 # ---------------------------------------------------------------------------
 # Signer
@@ -1328,6 +1496,131 @@ class ElsterEricClient:
     ) -> SubmissionResult:
         """Validate and transmit the USt/UStVA to ELSTER via ERiC."""
         return self._run_ust(report, year, period, is_berichtigung, send=True)
+
+    # ------------------------------------------------------------------
+    # KSt (Körperschaftsteuer)
+    # ------------------------------------------------------------------
+
+    def validate_kst(
+        self,
+        report: "KStReport",
+        year: int,
+    ) -> SubmissionResult:
+        """Validate the KSt E30 XML via ERiC without sending to ELSTER."""
+        return self._run_kst(report, year, send=False)
+
+    def submit_kst(
+        self,
+        report: "KStReport",
+        year: int,
+    ) -> SubmissionResult:
+        """
+        Validate and transmit the Körperschaftsteuererklärung (E30) to ELSTER via ERiC.
+
+        Parameters
+        ----------
+        report:
+            :class:`~finamt.tax.kst.KStReport` for the assessment year.
+        year:
+            Veranlagungsjahr, e.g. 2024.
+
+        Returns
+        -------
+        :class:`SubmissionResult` with ``success=True`` and a ``telenummer`` on success.
+        """
+        return self._run_kst(report, year, send=True)
+
+    def _run_kst(
+        self,
+        report: "KStReport",
+        year: int,
+        send: bool,
+    ) -> SubmissionResult:
+        from pathlib import Path as _Path
+
+        from .eric_wrapper import (
+            ERIC_SENDE,
+            ERIC_VALIDIERE,
+            EricBuffer,
+            EricCertificate,
+            EricError,
+            EricSession,
+        )
+
+        builder = ElsterXMLBuilder(self.config)
+        try:
+            envelope_xml = builder.build_kst(report, year=year, use_test=self.use_test)
+        except Exception as exc:
+            return SubmissionResult(
+                success=False, error_code="XML_BUILD_ERROR", error_message=str(exc)
+            )
+
+        datenart_version = f"KSt_{year}"
+        flags = ERIC_VALIDIERE
+        if send:
+            flags |= ERIC_SENDE
+
+        log_dir = self.log_dir
+        if log_dir:
+            _Path(log_dir).mkdir(parents=True, exist_ok=True)
+
+        rc: int = 0
+        response_xml: bytes = b""
+        server_xml: bytes = b""
+        eric_text: str = ""
+        try:
+            import contextlib as _contextlib
+
+            with EricSession(self.eric_home, log_dir=log_dir) as eric:
+                with EricBuffer(eric) as resp_buf, EricBuffer(eric) as srv_buf:
+                    _cert_cm = (
+                        EricCertificate(eric, str(self.config.cert_path), self.config.cert_password)
+                        if send
+                        else _contextlib.nullcontext()
+                    )
+                    with _cert_cm as cert:
+                        rc, _th = eric.bearbeite_vorgang(
+                            xml_bytes=envelope_xml,
+                            datenart_version=datenart_version,
+                            flags=flags,
+                            crypto_params=cert.verschluesselungs_parameter if send else None,
+                            response_buffer=resp_buf.handle(),
+                            server_buffer=srv_buf.handle(),
+                        )
+                        response_xml = resp_buf.content()
+                        server_xml = srv_buf.content()
+                        if rc != 0:
+                            eric_text = eric.get_error_text(rc)
+        except EricError as exc:
+            return SubmissionResult(success=False, error_code=str(exc.code), error_message=str(exc))
+        except OSError as exc:
+            return SubmissionResult(
+                success=False,
+                error_code="ERIC_LOAD_ERROR",
+                error_message=f"Could not load ERiC library from {self.eric_home}: {exc}",
+            )
+        except Exception as exc:
+            return SubmissionResult(success=False, error_code="ERIC_ERROR", error_message=str(exc))
+
+        if rc != 0:
+            err_msg = self._extract_eric_error(rc, response_xml, server_xml, eric_text)
+            return SubmissionResult(
+                success=False,
+                error_code=str(rc),
+                error_message=err_msg,
+                raw_response=(
+                    (response_xml or b"")
+                    + (b"\n" if response_xml and server_xml else b"")
+                    + (server_xml or b"")
+                ).decode("utf-8", errors="replace"),
+            )
+
+        telenummer = self._extract_telenummer(server_xml)
+        return SubmissionResult(
+            success=True,
+            telenummer=telenummer,
+            raw_response=(server_xml or b"").decode("utf-8", errors="replace"),
+        )
 
     def _run_ust(
         self,

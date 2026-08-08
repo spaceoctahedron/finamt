@@ -1,5 +1,10 @@
 # Changelog
-## Version 0.22.2 (2026-07-27)
+
+## Version 0.23.0 ()
+
+### KSt — ELSTER submission via ERiC
+
+## Version 0.22.2 (2026-08-08)
 
 ### UStVA — ELSTER submission via ERiC
 

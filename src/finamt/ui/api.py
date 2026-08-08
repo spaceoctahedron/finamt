@@ -1792,6 +1792,367 @@ def post_uste_xml(
 
 
 # ---------------------------------------------------------------------------
+# Körperschaftsteuer (KSt E30)
+# ---------------------------------------------------------------------------
+
+
+class KStSubmitRequest(BaseModel):
+    year: int
+    steuernummer: str = ""
+    bundesland_kz: str = ""
+    finanzamt_nr: str = ""
+    hersteller_id: str = ""
+    cert_path: str | None = None
+    cert_data_b64: str | None = None  # base64-encoded .pfx
+    cert_password: str | None = None
+    use_test: bool = True
+    validate_only: bool = False
+    # Optional override: wenn nicht gesetzt, wird zvE aus den Belegen berechnet
+    zve_override: float | None = None
+    prepayments: float = 0.0
+    company_name: str = ""
+    rechtsform: str = "GmbH"
+    street: str = ""
+    house_number: str = ""
+    postal_code: str = ""
+    city: str = ""
+
+
+@app.post("/tax/kst/submit", tags=["tax"])
+def post_kst_submit(
+    body: KStSubmitRequest,
+    db: str | None = Query(default=None),
+):
+    """
+    Build the Körperschaftsteuererklärung (E30) XML and transmit via ERiC.
+
+    The zu versteuerndes Einkommen (zvE) is computed from receipts in the
+    project database unless ``zve_override`` is supplied explicitly.
+
+    Set use_test=false ONLY for production filings — legally binding!
+    Set validate_only=true to build + validate without network submission.
+    """
+    import base64 as _b64
+    import os as _os
+
+    if not _LIB_AVAILABLE:
+        raise HTTPException(status_code=503, detail="finamt library not available")
+
+    from datetime import date as _date
+    from decimal import Decimal as _Decimal
+
+    from finamt.tax.elster import ElsterConfig, ElsterEricClient
+    from finamt.tax.kst import generate_kst
+
+    year = body.year
+    layout = _resolve_layout(db)
+    db_path = layout.db_path
+
+    # ── Compute zvE from receipts (or use override) ───────────────────
+    if body.zve_override is not None:
+        zve = _Decimal(str(body.zve_override))
+    else:
+        start = _date(year, 1, 1)
+        end = _date(year, 12, 31)
+        receipts = []
+        if db_path.exists():
+            with _repo(db_path) as repo:
+                receipts = list(repo.find_by_period(start, end))
+        # Mirror KStPanel logic: net income from non-cashflow receipts
+        _CASHFLOW_CATS = {
+            "Privatentnahme", "Privateinlage", "Darlehen", "Tilgung",
+            "Stammkapital", "Eigenkapital",
+        }
+        def _net(r):
+            vat_rate = (r.vat_percentage or 19) / 100
+            return r.business_net or r.net_amount or ((r.total_amount or 0) / (1 + vat_rate))
+
+        revenue = sum(_net(r) for r in receipts if r.receipt_type == "sale"     and (r.category or "") not in _CASHFLOW_CATS)
+        expense = sum(_net(r) for r in receipts if r.receipt_type == "purchase" and (r.category or "") not in _CASHFLOW_CATS)
+        zve = _Decimal(str(round(revenue - expense)))  # whole euros like ELSTER expects
+
+    # ── Taxpayer profile ──────────────────────────────────────────────
+    steuernummer = body.steuernummer
+    bundesland_kz = body.bundesland_kz
+    hersteller_id = body.hersteller_id
+    company_name = body.company_name
+    rechtsform = body.rechtsform
+    street = body.street
+    house_number = body.house_number
+    postal_code = body.postal_code
+    city = body.city
+
+    if db_path.exists():
+        with _repo(db_path) as _r:
+            _tp = _r.get_metadata("taxpayer") or {}
+            _misc = _r.get_metadata("elster_misc") or {}
+        if not steuernummer:
+            steuernummer = _tp.get("tax_number") or _os.environ.get("FINAMT_ELSTER_STEUERNUMMER", "")
+        if not hersteller_id:
+            hersteller_id = _misc.get("hersteller_id") or _os.environ.get("FINAMT_ELSTER_HERSTELLER_ID", "")
+        if not company_name:
+            company_name = _tp.get("name") or ""
+        if not rechtsform:
+            rechtsform = _tp.get("rechtsform") or "GmbH"
+        if not street:
+            street = _tp.get("street") or ""
+        if not postal_code:
+            postal_code = _tp.get("postcode") or ""
+        if not city:
+            city = _tp.get("city") or ""
+        if not bundesland_kz:
+            from finamt.tax.elster import bundesland_kz_from_city as _bkz
+            for _f in ("state", "city"):
+                _kz = _bkz(_tp.get(_f) or "")
+                if _kz:
+                    bundesland_kz = _kz
+                    break
+
+    if not steuernummer:
+        steuernummer = _os.environ.get("FINAMT_ELSTER_STEUERNUMMER", "")
+    if not bundesland_kz:
+        bundesland_kz = _os.environ.get("FINAMT_ELSTER_BUNDESLAND_KZ", "")
+    if not hersteller_id:
+        hersteller_id = _os.environ.get("FINAMT_ELSTER_HERSTELLER_ID", "")
+
+    if not hersteller_id:
+        raise HTTPException(
+            status_code=400,
+            detail="ELSTER Hersteller-ID not configured. Set FINAMT_ELSTER_HERSTELLER_ID.",
+        )
+
+    # ── Certificate ───────────────────────────────────────────────────
+    stored_cert = layout.root / "elster_cert.pfx"
+    cert_path = body.cert_path or _os.environ.get("FINAMT_ELSTER_CERT_PATH", "") or ""
+    cert_password = body.cert_password or _os.environ.get("FINAMT_ELSTER_CERT_PASSWORD", "")
+
+    if body.cert_data_b64:
+        raw_cert = _b64.b64decode(body.cert_data_b64)
+        layout.create_dirs()
+        stored_cert.write_bytes(raw_cert)
+        cert_path = str(stored_cert)
+    if not cert_path and stored_cert.exists():
+        cert_path = str(stored_cert)
+    if not cert_path:
+        raise HTTPException(
+            status_code=400,
+            detail="ELSTER certificate not configured. Upload a .pfx file or set FINAMT_ELSTER_CERT_PATH.",
+        )
+
+    # ── ERiC home ─────────────────────────────────────────────────────
+    eric_home = _os.environ.get("FINAMT_ERIC_HOME", "")
+    if not eric_home and db_path.exists():
+        with _repo(db_path) as _r:
+            _em = _r.get_metadata("elster_eric_home") or {}
+        eric_home = _em.get("path") or ""
+    if not eric_home:
+        raise HTTPException(
+            status_code=400,
+            detail="ERiC library path not configured. Set FINAMT_ERIC_HOME.",
+        )
+
+    report = generate_kst(
+        company_name=company_name or steuernummer,
+        rechtsform=rechtsform or "GmbH",
+        year=year,
+        zvE=zve,
+        prepayments=_Decimal(str(body.prepayments)),
+    )
+
+    elster_cfg = ElsterConfig(
+        cert_path=cert_path,
+        cert_password=cert_password,
+        steuernummer=steuernummer,
+        finanzamt_nr=body.finanzamt_nr or _os.environ.get("FINAMT_ELSTER_FINANZAMT_NR", ""),
+        bundesland_kz=bundesland_kz,
+        hersteller_id=hersteller_id,
+        company_name=company_name,
+        street=street,
+        house_number=house_number,
+        postal_code=postal_code,
+        city=city,
+    )
+
+    eric_log_dir = str(layout.root / "eric_logs")
+    client = ElsterEricClient(
+        elster_cfg, eric_home=eric_home, use_test=body.use_test, log_dir=eric_log_dir
+    )
+
+    try:
+        if body.validate_only:
+            result = client.validate_kst(report, year=year)
+            return {
+                "success": result.success,
+                "validate_only": True,
+                "message": result.error_message or "ERiC validation passed — not submitted.",
+                "error_code": result.error_code,
+            }
+        result = client.submit_kst(report, year=year)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    import datetime as _dt
+
+    xml_filename: str | None = None
+
+    if result.success:
+        try:
+            from finamt.tax.elster import ElsterXMLBuilder as _Builder
+
+            _xml_bytes = _Builder(elster_cfg).build_kst(report, year=year, use_test=body.use_test)
+            layout.submitted_returns_dir.mkdir(parents=True, exist_ok=True)
+            _ts = _dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            _mode = "test" if body.use_test else "prod"
+            xml_filename = f"KSt_{year}_{_ts}_{_mode}.xml"
+            (layout.submitted_returns_dir / xml_filename).write_bytes(_xml_bytes)
+        except Exception:
+            xml_filename = None
+
+        if db_path.exists():
+            with _repo(db_path) as _r:
+                _records = _r.get_metadata("submissions") or []
+                _records.append(
+                    {
+                        "type": "kst",
+                        "year": year,
+                        "submitted_at": _dt.datetime.utcnow().isoformat(),
+                        "telenummer": result.telenummer,
+                        "use_test": body.use_test,
+                        "xml_filename": xml_filename,
+                    }
+                )
+                _r.set_metadata("submissions", _records)
+
+    return {
+        "success": result.success,
+        "telenummer": result.telenummer,
+        "error_code": result.error_code,
+        "error_message": result.error_message,
+        "use_test": body.use_test,
+        "xml_filename": xml_filename,
+    }
+
+
+@app.post("/tax/kst/xml", tags=["tax"])
+def post_kst_xml(
+    body: KStSubmitRequest,
+    db: str | None = Query(default=None),
+):
+    """
+    Build the Körperschaftsteuererklärung (E30) XML and return it as text/xml.
+    No ERiC submission — for preview only.
+    """
+    import os as _os
+    from datetime import date as _date
+    from decimal import Decimal as _Decimal
+
+    from fastapi.responses import Response
+
+    if not _LIB_AVAILABLE:
+        raise HTTPException(status_code=503, detail="finamt library not available")
+
+    from finamt.tax.elster import ElsterConfig, ElsterXMLBuilder
+    from finamt.tax.kst import generate_kst
+
+    year = body.year
+    layout = _resolve_layout(db)
+    db_path = layout.db_path
+
+    # ── Compute zvE ───────────────────────────────────────────────────
+    if body.zve_override is not None:
+        zve = _Decimal(str(body.zve_override))
+    else:
+        start = _date(year, 1, 1)
+        end = _date(year, 12, 31)
+        receipts = []
+        if db_path.exists():
+            with _repo(db_path) as repo:
+                receipts = list(repo.find_by_period(start, end))
+        _CASHFLOW_CATS = {
+            "Privatentnahme", "Privateinlage", "Darlehen", "Tilgung",
+            "Stammkapital", "Eigenkapital",
+        }
+        def _net(r):
+            vat_rate = (r.vat_percentage or 19) / 100
+            return r.business_net or r.net_amount or ((r.total_amount or 0) / (1 + vat_rate))
+
+        revenue = sum(_net(r) for r in receipts if r.receipt_type == "sale"     and (r.category or "") not in _CASHFLOW_CATS)
+        expense = sum(_net(r) for r in receipts if r.receipt_type == "purchase" and (r.category or "") not in _CASHFLOW_CATS)
+        zve = _Decimal(str(round(revenue - expense)))
+
+    # ── Taxpayer / ELSTER params ──────────────────────────────────────
+    steuernummer = body.steuernummer
+    bundesland_kz = body.bundesland_kz
+    hersteller_id = body.hersteller_id
+    company_name = body.company_name
+    rechtsform = body.rechtsform
+    street = body.street
+    house_number = body.house_number
+    postal_code = body.postal_code
+    city = body.city
+
+    if db_path.exists():
+        with _repo(db_path) as _r:
+            _tp = _r.get_metadata("taxpayer") or {}
+            _misc = _r.get_metadata("elster_misc") or {}
+        if not steuernummer:
+            steuernummer = _tp.get("tax_number") or _os.environ.get("FINAMT_ELSTER_STEUERNUMMER", "")
+        if not hersteller_id:
+            hersteller_id = _misc.get("hersteller_id") or _os.environ.get("FINAMT_ELSTER_HERSTELLER_ID", "")
+        if not company_name:
+            company_name = _tp.get("name") or ""
+        if not rechtsform:
+            rechtsform = _tp.get("rechtsform") or "GmbH"
+        if not street:
+            street = _tp.get("street") or ""
+        if not postal_code:
+            postal_code = _tp.get("postcode") or ""
+        if not city:
+            city = _tp.get("city") or ""
+        if not bundesland_kz:
+            from finamt.tax.elster import bundesland_kz_from_city as _bkz
+            for _f in ("state", "city"):
+                _kz = _bkz(_tp.get(_f) or "")
+                if _kz:
+                    bundesland_kz = _kz
+                    break
+
+    if not hersteller_id:
+        hersteller_id = _os.environ.get("FINAMT_ELSTER_HERSTELLER_ID", "")
+    if not hersteller_id:
+        raise HTTPException(status_code=400, detail="ELSTER Hersteller-ID not configured")
+
+    report = generate_kst(
+        company_name=company_name or steuernummer,
+        rechtsform=rechtsform or "GmbH",
+        year=year,
+        zvE=zve,
+        prepayments=_Decimal(str(body.prepayments)),
+    )
+
+    elster_cfg = ElsterConfig(
+        cert_path=body.cert_path or "/dev/null",
+        cert_password=body.cert_password or "",
+        steuernummer=steuernummer or _os.environ.get("FINAMT_ELSTER_STEUERNUMMER", ""),
+        finanzamt_nr=body.finanzamt_nr or _os.environ.get("FINAMT_ELSTER_FINANZAMT_NR", ""),
+        bundesland_kz=bundesland_kz or _os.environ.get("FINAMT_ELSTER_BUNDESLAND_KZ", ""),
+        hersteller_id=hersteller_id,
+        company_name=company_name,
+        street=street,
+        house_number=house_number,
+        postal_code=postal_code,
+        city=city,
+    )
+
+    try:
+        xml_bytes = ElsterXMLBuilder(elster_cfg).build_kst(report, year=year, use_test=body.use_test)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return Response(content=xml_bytes, media_type="text/xml; charset=UTF-8")
+
+
+# ---------------------------------------------------------------------------
 # E-Bilanz XBRL
 # ---------------------------------------------------------------------------
 
