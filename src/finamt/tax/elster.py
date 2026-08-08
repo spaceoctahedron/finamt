@@ -382,6 +382,20 @@ def normalise_steuernummer(raw: str, bundesland_kz: str) -> str:
 # UStVA Kennzahlen mapping
 # ---------------------------------------------------------------------------
 
+# Canonical XSD sequence order for child elements of
+# Umsatzsteuervoranmeldung_m472961002_CType (per the official ERiC UStVA-2025
+# schema documentation). The ELSTER schema requires elements in strict sequence
+# order — emitting them in a different order (e.g. dict-insertion order) causes
+# ERiC error 610301200 (XML-Validierungsfehler / XSD schema violation).
+_USTVA_KZ_ORDER: tuple[str, ...] = (
+    "Kz09", "Kz10", "Kz21", "Kz22", "Kz23", "Kz26", "Kz29", "Kz35", "Kz36",
+    "Kz37", "Kz39", "Kz41", "Kz42", "Kz43", "Kz44", "Kz45", "Kz46", "Kz47",
+    "Kz48", "Kz49", "Kz50", "Kz59", "Kz60", "Kz61", "Kz62", "Kz63", "Kz64",
+    "Kz65", "Kz66", "Kz67", "Kz69", "Kz70", "Kz73", "Kz74", "Kz76", "Kz77",
+    "Kz80", "Kz81", "Kz83", "Kz84", "Kz85", "Kz86", "Kz87", "Kz89", "Kz91",
+    "Kz93", "Kz90", "Kz94", "Kz95", "Kz96", "Kz98",
+)
+
 
 def _ustva_kennzahlen(report: USTVAReport) -> dict[str, str]:
     """
@@ -425,6 +439,15 @@ def _ustva_kennzahlen(report: USTVAReport) -> dict[str, str]:
     # Input tax (Vorsteuer) — all rates combined in Kz 66
     if report.total_input_vat > 0:
         kz["Kz66"] = cents(report.total_input_vat)
+
+    # Net VAT balance — Kz83 is mandatory whenever there is any reportable
+    # VAT activity. For a genuinely empty report (no turnover, no input tax)
+    # we omit it entirely so a blank/Null period doesn't emit a spurious
+    # "0.00" Kz83.
+    # Positive = Zahllast (payment due); negative = Überschuss (refund)
+    net = report.total_output_vat - report.total_input_vat
+    if kz or net != 0:
+        kz["Kz83"] = cents(net)
 
     return kz
 
@@ -548,16 +571,53 @@ class ElsterXMLBuilder:
             self._build_ust_annual_e50(nd, report, year, steuernr)
         else:
             kz = _ustva_kennzahlen(report)
-            anm = etree.SubElement(nd, _t("Anmeldungssteuern"), art="UStVA", version=f"{year}01")
-            sf = etree.SubElement(anm, _t("Steuerfall"))
-            ustva = etree.SubElement(sf, _t("Umsatzsteuervoranmeldung"))
-            etree.SubElement(ustva, _t("Jahr")).text = str(year)
-            etree.SubElement(ustva, _t("Zeitraum")).text = str(period).zfill(2)
-            etree.SubElement(ustva, _t("Steuernummer")).text = steuernr
-            etree.SubElement(ustva, _t("Kz09")).text = self.config.finanzamt_nr
-            etree.SubElement(ustva, _t("Kz10")).text = "1" if is_berichtigung else "0"
-            for kz_name, kz_value in kz.items():
-                etree.SubElement(ustva, _t(kz_name)).text = kz_value
+            # The Anmeldungssteuern/UStVA payload lives in its own year-versioned
+            # namespace (NOT the generic ELSTER envelope namespace v11). Omitting
+            # this nsmap override causes ERiC error 610301200 / EDS-XML "no
+            # declaration found for element 'Anmeldungssteuern'" because the
+            # element inherits the wrong (envelope) namespace from the root.
+            ustva_ns = f"http://finkonsens.de/elster/elsteranmeldung/ustva/v{year}"
+
+            def _u(tag: str) -> str:
+                return f"{{{ustva_ns}}}{tag}"
+
+            # Anmeldungssteuern_CType only declares a single attribute: "version"
+            # (fixed to the schema year, e.g. "2025"). There is NO "art" attribute
+            # in the real XSD — passing one causes ERiC error 610301200 / EDS-XML
+            # "attribute 'art' is not declared for element 'Anmeldungssteuern'".
+            anm = etree.SubElement(
+                nd, _u("Anmeldungssteuern"), nsmap={None: ustva_ns}, version=str(year)
+            )
+            # Erstellungsdatum is mandatory
+            import datetime as _dts
+            etree.SubElement(anm, _u("Erstellungsdatum")).text = _dts.date.today().isoformat().replace("-", "")
+            # DatenLieferant inside Anmeldungssteuern (company address, distinct from TransferHeader/DatenLieferant)
+            dl = etree.SubElement(anm, _u("DatenLieferant"))
+            etree.SubElement(dl, _u("Name")).text = (self.config.company_name or steuernr).strip()[:45]
+            etree.SubElement(dl, _u("Strasse")).text = f"{self.config.street} {self.config.house_number}".strip()[:30] or "—"
+            etree.SubElement(dl, _u("PLZ")).text = (self.config.postal_code or "00000").strip()[:5]
+            etree.SubElement(dl, _u("Ort")).text = (self.config.city or "—").strip()[:29]
+            sf = etree.SubElement(anm, _u("Steuerfall"))
+            ustva = etree.SubElement(sf, _u("Umsatzsteuervoranmeldung"))
+            etree.SubElement(ustva, _u("Jahr")).text = str(year)
+            etree.SubElement(ustva, _u("Zeitraum")).text = str(period).zfill(2)
+            etree.SubElement(ustva, _u("Steuernummer")).text = steuernr
+            # Kz09 = Fünfstellige HerstellerID (per official ERiC UStVA schema docs) — NOT the
+            # Finanzamtsnummer. Only emit if we actually have a Hersteller-ID configured, since
+            # the field is optional (minOccurs=0) but must match a 5-char pattern when present.
+            if self.config.hersteller_id:
+                etree.SubElement(ustva, _u("Kz09")).text = self.config.hersteller_id
+            # Kz10 = Berichtigte Voranmeldung — only include when '1'; omit for normal returns
+            if is_berichtigung:
+                etree.SubElement(ustva, _u("Kz10")).text = "1"
+            # Emit remaining Kz fields in strict XSD sequence order (not dict-insertion
+            # order) — the ELSTER schema requires elements in a fixed sequence, and
+            # emitting them out of order causes ERiC error 610301200.
+            for kz_name in _USTVA_KZ_ORDER:
+                if kz_name in ("Kz09", "Kz10"):
+                    continue  # already emitted above
+                if kz_name in kz:
+                    etree.SubElement(ustva, _u(kz_name)).text = kz[kz_name]
 
         return etree.tostring(root, xml_declaration=True, encoding="UTF-8", pretty_print=True)
 

@@ -10,10 +10,6 @@ The UStVA panel now supports direct ELSTER transmission for quarterly and monthl
 - **XML archive + overview refresh** — submitted XML is saved as `UStVA_{year}_{Q|M}_{ts}_{prod|test}.xml`; the returns overview checkmark (`ustva_q1`…`ustva_m12`) fills immediately via `onSubmissionChange`.
 - **Period hint** — when the sidebar is set to "all years" the submission section shows a hint to select a specific month or quarter instead of the send button.
 
-## Version 0.22.2 (2026-07-27)
-
-+ UStVA 
-
 ## Version 0.21.2 (2026-07-26)
 
 ### Milestone: end-to-end ELSTER submission confirmed

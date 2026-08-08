@@ -379,17 +379,20 @@ Every receipt is tagged with a category and optional subcategory. Categories map
 - [x] GewSt — trade tax return
 - [x] Jahresabschluss — annual accounts (Bilanz + GuV, § 267a HGB)
 
+**Validation**
+- [x] XSD validation of generated XBRL against HGB taxonomy
+- [x] ELSTER dry-run / test-server validation before live submission
+
 **ELSTER transmission**
 - [x] UStVA — ELSTER XML builder + Kennzahlen mapper + RSA signing + HTTP submission
 - [x] E-Bilanz — XBRL instance document (HGB taxonomy v6, MicroBilG schema)
 - [x] E-Bilanz — ERiC ctypes bridge for actual transmission
 - [x] USt — ELSTER XML builder + ERiC ctypes submission (confirmed end-to-end)
-- [ ] KSt, GewSt, UStVA — ELSTER XML builder
+- [x] UStVA — ELSTER XML builder + ERiC ctypes submission (confirmed end-to-end)
+- [ ] KSt — ELSTER XML builder
+- [ ] GewSt — ELSTER XML builder
 - [ ] EÜR, ESt — ELSTER XML builder
 
-**Validation**
-- [ ] XSD validation of generated XBRL against HGB taxonomy
-- [ ] ELSTER dry-run / test-server validation before live submission
 
 ## Contributing
 

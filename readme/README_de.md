@@ -382,13 +382,16 @@ Jeder Beleg wird mit einer Kategorie und einer optionalen Unterkategorie versehe
 **ELSTER-Übermittlung**
 - [x] UStVA — ELSTER-XML-Generator + Kennzahlen-Mapper + RSA-Signierung + HTTP-Übermittlung
 - [x] E-Bilanz — XBRL-Instanzdokument (HGB-Taxonomie v6, MicroBilG-Schema)
-- [ ] E-Bilanz — ERiC-ctypes-Brücke für die eigentliche Übermittlung
-- [ ] KSt, GewSt, UStVA, USt — ELSTER-XML-Generator
+- [x] E-Bilanz — ERiC-ctypes-Brücke für die eigentliche Übermittlung
+- [x] USt — ELSTER-XML-Generator + ERiC-ctypes-Übermittlung (Ende-zu-Ende bestätigt)
+- [x] UStVA — ELSTER-XML-Generator + ERiC-ctypes-Übermittlung (Ende-zu-Ende bestätigt)
+- [ ] KSt — ELSTER-XML-Generator
+- [ ] GewSt — ELSTER-XML-Generator
 - [ ] EÜR, ESt — ELSTER-XML-Generator
 
 **Validierung**
-- [ ] XSD-Validierung des generierten XBRL gegen die HGB-Taxonomie
-- [ ] ELSTER-Probelauf / Testserver-Validierung vor der Live-Übermittlung
+- [x] XSD-Validierung des generierten XBRL gegen die HGB-Taxonomie
+- [x] ELSTER-Probelauf / Testserver-Validierung vor der Live-Übermittlung
 
 ## Mitwirken
 
