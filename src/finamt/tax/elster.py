@@ -314,8 +314,8 @@ class SubmissionResult:
 _BL_STRUCTURE: dict[str, tuple[str, int, int]] = {
     "28": ("28", 0, 2),  # Baden-Württemberg:       FF/BBB/UUUUP
     "08": ("28", 0, 2),  # Baden-Württemberg alt kz
-    "9":  ("9",  0, 3),  # Bayern:                 FFF/BBB/UUUUP
-    "09": ("9",  0, 3),  # Bayern alt kz
+    "9": ("9", 0, 3),  # Bayern:                 FFF/BBB/UUUUP
+    "09": ("9", 0, 3),  # Bayern alt kz
     "11": ("11", 0, 2),  # Berlin:                  FF/BBB/UUUUP
     "30": ("30", 1, 2),  # Brandenburg:            0FF/BBB/UUUUP
     "12": ("30", 1, 2),  # Brandenburg alt kz
@@ -329,8 +329,8 @@ _BL_STRUCTURE: dict[str, tuple[str, int, int]] = {
     "13": ("40", 1, 2),  # Mecklenburg-Vorpommern alt kz
     "23": ("23", 0, 2),  # Niedersachsen:           FF/BBB/UUUUP
     "03": ("23", 0, 2),  # Niedersachsen alt kz
-    "5":  ("5",  0, 3),  # Nordrhein-Westfalen:    FFF/BBBB/UUUP
-    "05": ("5",  0, 3),  # Nordrhein-Westfalen alt kz
+    "5": ("5", 0, 3),  # Nordrhein-Westfalen:    FFF/BBBB/UUUP
+    "05": ("5", 0, 3),  # Nordrhein-Westfalen alt kz
     "27": ("27", 0, 2),  # Rheinland-Pfalz:         FF/BBB/UUUUP
     "07": ("27", 0, 2),  # Rheinland-Pfalz alt kz
     "10": ("10", 1, 2),  # Saarland:               0FF/BBB/UUUUP
@@ -370,10 +370,10 @@ def normalise_steuernummer(raw: str, bundesland_kz: str) -> str:
     # rest_expected = digits after FA in the unified number (between '0' and end)
     rest_expected = 13 - len(bl_prefix) - fa_len - 1  # subtract BL, FA, and the '0'
 
-    local = digits[fa_offset:]          # skip leading state-specific digit(s)
-    fa = local[:fa_len]                 # Finanzamt digits
-    rest = local[fa_len:]               # Bezirk + Prüfziffer
-    rest = rest.zfill(rest_expected)    # left-pad if input was short
+    local = digits[fa_offset:]  # skip leading state-specific digit(s)
+    fa = local[:fa_len]  # Finanzamt digits
+    rest = local[fa_len:]  # Bezirk + Prüfziffer
+    rest = rest.zfill(rest_expected)  # left-pad if input was short
 
     return bl_prefix + fa + "0" + rest
 
@@ -388,12 +388,57 @@ def normalise_steuernummer(raw: str, bundesland_kz: str) -> str:
 # order — emitting them in a different order (e.g. dict-insertion order) causes
 # ERiC error 610301200 (XML-Validierungsfehler / XSD schema violation).
 _USTVA_KZ_ORDER: tuple[str, ...] = (
-    "Kz09", "Kz10", "Kz21", "Kz22", "Kz23", "Kz26", "Kz29", "Kz35", "Kz36",
-    "Kz37", "Kz39", "Kz41", "Kz42", "Kz43", "Kz44", "Kz45", "Kz46", "Kz47",
-    "Kz48", "Kz49", "Kz50", "Kz59", "Kz60", "Kz61", "Kz62", "Kz63", "Kz64",
-    "Kz65", "Kz66", "Kz67", "Kz69", "Kz70", "Kz73", "Kz74", "Kz76", "Kz77",
-    "Kz80", "Kz81", "Kz83", "Kz84", "Kz85", "Kz86", "Kz87", "Kz89", "Kz91",
-    "Kz93", "Kz90", "Kz94", "Kz95", "Kz96", "Kz98",
+    "Kz09",
+    "Kz10",
+    "Kz21",
+    "Kz22",
+    "Kz23",
+    "Kz26",
+    "Kz29",
+    "Kz35",
+    "Kz36",
+    "Kz37",
+    "Kz39",
+    "Kz41",
+    "Kz42",
+    "Kz43",
+    "Kz44",
+    "Kz45",
+    "Kz46",
+    "Kz47",
+    "Kz48",
+    "Kz49",
+    "Kz50",
+    "Kz59",
+    "Kz60",
+    "Kz61",
+    "Kz62",
+    "Kz63",
+    "Kz64",
+    "Kz65",
+    "Kz66",
+    "Kz67",
+    "Kz69",
+    "Kz70",
+    "Kz73",
+    "Kz74",
+    "Kz76",
+    "Kz77",
+    "Kz80",
+    "Kz81",
+    "Kz83",
+    "Kz84",
+    "Kz85",
+    "Kz86",
+    "Kz87",
+    "Kz89",
+    "Kz91",
+    "Kz93",
+    "Kz90",
+    "Kz94",
+    "Kz95",
+    "Kz96",
+    "Kz98",
 )
 
 
@@ -590,11 +635,18 @@ class ElsterXMLBuilder:
             )
             # Erstellungsdatum is mandatory
             import datetime as _dts
-            etree.SubElement(anm, _u("Erstellungsdatum")).text = _dts.date.today().isoformat().replace("-", "")
+
+            etree.SubElement(anm, _u("Erstellungsdatum")).text = (
+                _dts.date.today().isoformat().replace("-", "")
+            )
             # DatenLieferant inside Anmeldungssteuern (company address, distinct from TransferHeader/DatenLieferant)
             dl = etree.SubElement(anm, _u("DatenLieferant"))
-            etree.SubElement(dl, _u("Name")).text = (self.config.company_name or steuernr).strip()[:45]
-            etree.SubElement(dl, _u("Strasse")).text = f"{self.config.street} {self.config.house_number}".strip()[:30] or "—"
+            etree.SubElement(dl, _u("Name")).text = (self.config.company_name or steuernr).strip()[
+                :45
+            ]
+            etree.SubElement(dl, _u("Strasse")).text = (
+                f"{self.config.street} {self.config.house_number}".strip()[:30] or "—"
+            )
             etree.SubElement(dl, _u("PLZ")).text = (self.config.postal_code or "00000").strip()[:5]
             etree.SubElement(dl, _u("Ort")).text = (self.config.city or "—").strip()[:29]
             sf = etree.SubElement(anm, _u("Steuerfall"))
@@ -1327,15 +1379,14 @@ class ElsterEricClient:
         eric_text: str = ""
         try:
             import contextlib as _contextlib
+
             with EricSession(self.eric_home, log_dir=log_dir) as eric:
                 with EricBuffer(eric) as resp_buf, EricBuffer(eric) as srv_buf:
                     # ERiC error 610001027: crypto_params must be NULL when
                     # Bearbeitungsflags = VALIDIERE only (without SENDE).
                     # Only load the certificate context manager when actually sending.
                     _cert_cm = (
-                        EricCertificate(
-                            eric, str(self.config.cert_path), self.config.cert_password
-                        )
+                        EricCertificate(eric, str(self.config.cert_path), self.config.cert_password)
                         if send
                         else _contextlib.nullcontext()
                     )
@@ -1436,14 +1487,13 @@ class ElsterEricClient:
         eric_text: str = ""
         try:
             import contextlib as _contextlib
+
             with EricSession(self.eric_home, log_dir=self.log_dir) as eric:
                 with EricBuffer(eric) as resp_buf, EricBuffer(eric) as srv_buf:
                     # ERiC error 610001027: crypto_params must be NULL when
                     # Bearbeitungsflags = VALIDIERE only (without SENDE).
                     _cert_cm = (
-                        EricCertificate(
-                            eric, str(self.config.cert_path), self.config.cert_password
-                        )
+                        EricCertificate(eric, str(self.config.cert_path), self.config.cert_password)
                         if send
                         else _contextlib.nullcontext()
                     )

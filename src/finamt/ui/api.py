@@ -1107,8 +1107,8 @@ def get_ustva(
 
 class UStVASubmitRequest(BaseModel):
     year: int
-    quarter: int | None = None   # 1–4 (mutually exclusive with month)
-    month: int | None = None     # 1–12 (mutually exclusive with quarter)
+    quarter: int | None = None  # 1–4 (mutually exclusive with month)
+    month: int | None = None  # 1–12 (mutually exclusive with quarter)
     steuernummer: str = ""
     bundesland_kz: str = ""
     finanzamt_nr: str = ""
@@ -1128,10 +1128,10 @@ class UStVASubmitRequest(BaseModel):
 
 def _ustva_period_info(
     year: int, quarter: int | None, month: int | None
-) -> tuple[int, "date", "date", str]:
+) -> tuple[int, date, date, str]:
     """Return (eric_period, start, end, submission_type_key)."""
-    from datetime import date as _d
     import calendar
+    from datetime import date as _d
 
     if month:
         eric_period = month  # 1–12
@@ -1169,7 +1169,9 @@ def post_ustva_submit(
         raise HTTPException(status_code=503, detail="finamt library not available")
 
     if not body.quarter and not body.month:
-        raise HTTPException(status_code=400, detail="Provide either 'quarter' (1-4) or 'month' (1-12).")
+        raise HTTPException(
+            status_code=400, detail="Provide either 'quarter' (1-4) or 'month' (1-12)."
+        )
 
     from finamt.tax.elster import ElsterConfig, ElsterEricClient
 
@@ -1229,6 +1231,7 @@ def post_ustva_submit(
 
     if not bundesland_kz and db_path.exists():
         from finamt.tax.elster import bundesland_kz_from_city as _bkz
+
         with _repo(db_path) as _r:
             _tp = _r.get_metadata("taxpayer") or {}
         for _field in ("state", "city"):
@@ -1252,8 +1255,6 @@ def post_ustva_submit(
         city = city or _tp2.get("city") or ""
         if not steuernummer:
             steuernummer = _tp2.get("tax_number") or ""
-
-    from decimal import Decimal as _Decimal
 
     elster_cfg = ElsterConfig(
         cert_path=cert_path,
@@ -1281,18 +1282,24 @@ def post_ustva_submit(
         )
 
     eric_log_dir = str(layout.root / "eric_logs")
-    client = ElsterEricClient(elster_cfg, eric_home=eric_home, use_test=body.use_test, log_dir=eric_log_dir)
+    client = ElsterEricClient(
+        elster_cfg, eric_home=eric_home, use_test=body.use_test, log_dir=eric_log_dir
+    )
 
     try:
         if body.validate_only:
-            result = client.validate_ust(report, year=year, period=eric_period, is_berichtigung=body.is_berichtigung)
+            result = client.validate_ust(
+                report, year=year, period=eric_period, is_berichtigung=body.is_berichtigung
+            )
             return {
                 "success": result.success,
                 "validate_only": True,
                 "message": result.error_message or "ERiC validation passed — not submitted.",
                 "error_code": result.error_code,
             }
-        result = client.submit_ust(report, year=year, period=eric_period, is_berichtigung=body.is_berichtigung)
+        result = client.submit_ust(
+            report, year=year, period=eric_period, is_berichtigung=body.is_berichtigung
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -1301,8 +1308,13 @@ def post_ustva_submit(
     if result.success:
         try:
             from finamt.tax.elster import ElsterXMLBuilder as _Builder
+
             _xml_bytes = _Builder(elster_cfg).build_ustva(
-                report, year, eric_period, is_berichtigung=body.is_berichtigung, use_test=body.use_test
+                report,
+                year,
+                eric_period,
+                is_berichtigung=body.is_berichtigung,
+                use_test=body.use_test,
             )
             layout.submitted_returns_dir.mkdir(parents=True, exist_ok=True)
             _ts = _dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -1316,14 +1328,16 @@ def post_ustva_submit(
         if db_path.exists():
             with _repo(db_path) as _r:
                 _records = _r.get_metadata("submissions") or []
-                _records.append({
-                    "type": sub_type,
-                    "year": year,
-                    "submitted_at": _dt.datetime.utcnow().isoformat(),
-                    "telenummer": result.telenummer,
-                    "use_test": body.use_test,
-                    "xml_filename": xml_filename,
-                })
+                _records.append(
+                    {
+                        "type": sub_type,
+                        "year": year,
+                        "submitted_at": _dt.datetime.utcnow().isoformat(),
+                        "telenummer": result.telenummer,
+                        "use_test": body.use_test,
+                        "xml_filename": xml_filename,
+                    }
+                )
                 _r.set_metadata("submissions", _records)
 
     return {
@@ -1350,6 +1364,7 @@ def post_ustva_xml(
         raise HTTPException(status_code=400, detail="Provide either 'quarter' or 'month'.")
 
     from fastapi.responses import Response
+
     from finamt.tax.elster import ElsterConfig, ElsterXMLBuilder
 
     year = body.year
@@ -1367,7 +1382,9 @@ def post_ustva_xml(
             receipts = list(r.find_by_period(start, end))
     report = generate_ustva(receipts, start, end)
 
-    cert_path = body.cert_path or _os.path.expanduser(_os.environ.get("FINAMT_ELSTER_CERT_PATH") or "")
+    cert_path = body.cert_path or _os.path.expanduser(
+        _os.environ.get("FINAMT_ELSTER_CERT_PATH") or ""
+    )
     cert_password = body.cert_password or _os.environ.get("FINAMT_ELSTER_CERT_PASSWORD", "")
     steuernummer = body.steuernummer or _os.environ.get("FINAMT_ELSTER_STEUERNUMMER", "")
     finanzamt_nr = body.finanzamt_nr or _os.environ.get("FINAMT_ELSTER_FINANZAMT_NR", "")
@@ -1376,6 +1393,7 @@ def post_ustva_xml(
 
     if not bundesland_kz and db_path.exists():
         from finamt.tax.elster import bundesland_kz_from_city as _bkz
+
         with _repo(db_path) as _r:
             _tp = _r.get_metadata("taxpayer") or {}
         for _f in ("state", "city"):
@@ -1385,7 +1403,11 @@ def post_ustva_xml(
                 break
 
     company_name, street, house_number, postal_code, city = (
-        body.company_name, body.street, body.house_number, body.postal_code, body.city
+        body.company_name,
+        body.street,
+        body.house_number,
+        body.postal_code,
+        body.city,
     )
     if db_path.exists() and not all([company_name, street, postal_code, city]):
         with _repo(db_path) as _r:
@@ -1587,7 +1609,9 @@ def post_uste_submit(
         )
 
     eric_log_dir = str(layout.root / "eric_logs")
-    client = ElsterEricClient(elster_cfg, eric_home=eric_home, use_test=body.use_test, log_dir=eric_log_dir)
+    client = ElsterEricClient(
+        elster_cfg, eric_home=eric_home, use_test=body.use_test, log_dir=eric_log_dir
+    )
 
     try:
         if body.validate_only:
@@ -1611,6 +1635,7 @@ def post_uste_submit(
         # Build the XML for archiving (same builder as used internally by submit_ust)
         try:
             from finamt.tax.elster import ElsterXMLBuilder as _Builder
+
             _xml_bytes = _Builder(elster_cfg).build_ustva(
                 report, year=year, period=0, use_test=body.use_test
             )
@@ -1988,16 +2013,24 @@ def post_ebilanz_envelope(
 def get_ebilanz_settings(db: str | None = Query(default=None)):
     """Return all persisted ELSTER settings for this project."""
     import os as _os
+
     layout = _resolve_layout(db)
     if not layout.db_path.exists():
         eric_home_env = _os.environ.get("FINAMT_ERIC_HOME") or None
         hersteller_id_env = _os.environ.get("FINAMT_ELSTER_HERSTELLER_ID") or None
-        return {"eric_home": eric_home_env, "elster_id": None, "cert_pin": None, "hersteller_id": hersteller_id_env}
+        return {
+            "eric_home": eric_home_env,
+            "elster_id": None,
+            "cert_pin": None,
+            "hersteller_id": hersteller_id_env,
+        }
     with _repo(layout.db_path) as repo:
         eric = repo.get_metadata("elster_eric_home") or {}
         misc = repo.get_metadata("elster_misc") or {}
     # Fall back to environment variables when the project DB has no stored value
-    hersteller_id = misc.get("hersteller_id") or _os.environ.get("FINAMT_ELSTER_HERSTELLER_ID") or None
+    hersteller_id = (
+        misc.get("hersteller_id") or _os.environ.get("FINAMT_ELSTER_HERSTELLER_ID") or None
+    )
     eric_home = eric.get("path") or _os.environ.get("FINAMT_ERIC_HOME") or None
     return {
         "eric_home": eric_home,
