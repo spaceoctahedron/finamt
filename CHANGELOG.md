@@ -1,8 +1,13 @@
 # Changelog
 
-## Version 0.23.0 ()
+## Version 0.22.3 (2026-09-13)
 
-### KSt — ELSTER submission via ERiC
+### Fixed
+
+- UStVA — stale "Test-Übermittlung erfolgreich" banner no longer lingers after switching from Testmodus to Produktivmodus
+- UStVA — ELSTER submission state (result, errors, resubmit confirmation) now resets correctly when toggling Test modus vs Produktivmodus
+- UStVA — "Bereits übermittelt" now shows date **and** time, not just the date
+
 
 ## Version 0.22.2 (2026-08-08)
 
