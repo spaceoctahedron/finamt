@@ -17,7 +17,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/spaceoctahedron/finamt)](https://github.com/spaceoctahedron/finamt/commits/main)
 [![Documentation Status](https://readthedocs.org/projects/finamt/badge/?version=latest)](https://readthedocs.org/projects/finamt/)
 
-![US](https://api.iconify.design/noto-v1:flag-for-flag-united-states.svg?height=16) [English](https://github.com/spaceoctahedron/finamt/blob/main/README.md) | ![DE](https://api.iconify.design/noto-v1:flag-for-flag-germany.svg?height=16) Deutsch
+![US](https://api.iconify.design/noto-v1/flag-for-flag-united-states.svg?height=16) [English](https://github.com/spaceoctahedron/finamt/blob/main/README.md) | ![DE](https://api.iconify.design/noto-v1/flag-for-flag-germany.svg?height=16) Deutsch
 
 </div>
 
@@ -34,29 +34,29 @@ Eine agentische Python-Bibliothek zur strukturierten Extraktion von Daten aus Be
 ## Technologie-Stack
 
 **Backend**
-- ![Python](https://api.iconify.design/devicon:python.svg?height=16) [Python](https://www.python.org) — Paketsprache
-- ![FastAPI](https://api.iconify.design/devicon:fastapi.svg?height=16) [FastAPI](https://fastapi.tiangolo.com) — Backend der Web-Oberfläche
-- ![PaddleOCR](https://api.iconify.design/simple-icons:paddlepaddle.svg?height=16&color=%23363FE5) [PaddleOCR](https://github.com/PADDLEPADDLE/PADDLEOCR) — OCR für gescannte PDFs
-- ![Tesseract](https://api.iconify.design/devicon:google.svg?height=16) [Tesseract](https://github.com/tesseract-ocr/tesseract) — OCR für gescannte PDFs und Bilder als Fallback bei PaddleOCR-Fehlern oder Timeouts
-- ![HuggingFace](https://api.iconify.design/simple-icons:huggingface.svg?height=16&color=%23FFD21E) [HuggingFace Hub](https://huggingface.co) — Modelle werden beim ersten Start automatisch heruntergeladen und gecacht; kein separater Server erforderlich
-    - ![Mistral](https://api.iconify.design/logos:mistral-ai-icon.svg?height=16) [Mistral](https://mistral.ai) — `mistral:7b` ist das empfohlene Standardmodell (auf Apple Silicon: `mlx-community/Mistral-7B-Instruct-v0.3-4bit`)
-    - ![Qwen](https://api.iconify.design/simple-icons:qwen.svg?height=16&color=%237B2FBF) [Qwen](https://qwen.ai/home) — `qwen2.5:7b-instruct-q4_K_M` ist eine gute Alternative (auf Apple Silicon: `mlx-community/Qwen2.5-7B-Instruct-4bit`)
-    - ![mlx-lm](https://api.iconify.design/simple-icons:apple.svg?height=16) [mlx-lm](https://github.com/ml-explore/mlx-lm) — 4-Bit-Inferenz auf Apple Silicon (M-Serie) via MLX; ca. 13 % schneller als Ollama
-    - ![transformers](https://api.iconify.design/simple-icons:huggingface.svg?height=16&color=%23FFD21E) [transformers](https://huggingface.co/docs/transformers) — Plattformübergreifender Inferenz-Fallback (Linux / Windows / Intel Mac)
-- ![SQLite](https://api.iconify.design/devicon:sqlite.svg?height=16) [SQLite](https://sqlite.org) — Lokale Datenbank für Originalbelege und extrahierte Daten
+- ![Python](https://api.iconify.design/devicon/python.svg?height=16) [Python](https://www.python.org) — Paketsprache
+- ![FastAPI](https://api.iconify.design/devicon/fastapi.svg?height=16) [FastAPI](https://fastapi.tiangolo.com) — Backend der Web-Oberfläche
+- ![PaddleOCR](https://api.iconify.design/simple-icons/paddlepaddle.svg?height=16&color=%23363FE5) [PaddleOCR](https://github.com/PADDLEPADDLE/PADDLEOCR) — OCR für gescannte PDFs
+- ![Tesseract](https://api.iconify.design/devicon/google.svg?height=16) [Tesseract](https://github.com/tesseract-ocr/tesseract) — OCR für gescannte PDFs und Bilder als Fallback bei PaddleOCR-Fehlern oder Timeouts
+- ![HuggingFace](https://api.iconify.design/simple-icons/huggingface.svg?height=16&color=%23FFD21E) [HuggingFace Hub](https://huggingface.co) — Modelle werden beim ersten Start automatisch heruntergeladen und gecacht; kein separater Server erforderlich
+    - ![Mistral](https://api.iconify.design/logos/mistral-ai-icon.svg?height=16) [Mistral](https://mistral.ai) — `mistral:7b` ist das empfohlene Standardmodell (auf Apple Silicon: `mlx-community/Mistral-7B-Instruct-v0.3-4bit`)
+    - ![Qwen](https://api.iconify.design/simple-icons/qwen.svg?height=16&color=%237B2FBF) [Qwen](https://qwen.ai/home) — `qwen2.5:7b-instruct-q4_K_M` ist eine gute Alternative (auf Apple Silicon: `mlx-community/Qwen2.5-7B-Instruct-4bit`)
+    - ![mlx-lm](https://api.iconify.design/simple-icons/apple.svg?height=16) [mlx-lm](https://github.com/ml-explore/mlx-lm) — 4-Bit-Inferenz auf Apple Silicon (M-Serie) via MLX; ca. 13 % schneller als Ollama
+    - ![transformers](https://api.iconify.design/simple-icons/huggingface.svg?height=16&color=%23FFD21E) [transformers](https://huggingface.co/docs/transformers) — Plattformübergreifender Inferenz-Fallback (Linux / Windows / Intel Mac)
+- ![SQLite](https://api.iconify.design/devicon/sqlite.svg?height=16) [SQLite](https://sqlite.org) — Lokale Datenbank für Originalbelege und extrahierte Daten
 
 **Frontend**
-- ![React](https://api.iconify.design/devicon:react.svg?height=16) [React](https://react.dev) — Interaktives Frontend
-- ![Vite](https://api.iconify.design/devicon:vitejs.svg?height=16) [Vite](https://vite.dev) — Schneller Dev-Server und Produktions-Bundler
-- ![Tailwind CSS](https://api.iconify.design/devicon:tailwindcss.svg?height=16) [Tailwind CSS](https://tailwindcss.com) — Utility-First-Styling
-- ![TypeScript](https://api.iconify.design/devicon:typescript.svg?height=16) [TypeScript](https://www.typescriptlang.org) — Typsichere Komponenten- und API-Code
+- ![React](https://api.iconify.design/devicon/react.svg?height=16) [React](https://react.dev) — Interaktives Frontend
+- ![Vite](https://api.iconify.design/devicon/vitejs.svg?height=16) [Vite](https://vite.dev) — Schneller Dev-Server und Produktions-Bundler
+- ![Tailwind CSS](https://api.iconify.design/devicon/tailwindcss.svg?height=16) [Tailwind CSS](https://tailwindcss.com) — Utility-First-Styling
+- ![TypeScript](https://api.iconify.design/devicon/typescript.svg?height=16) [TypeScript](https://www.typescriptlang.org) — Typsichere Komponenten- und API-Code
 
 
 **CLI**
-- ![Typer](https://api.iconify.design/devicon:typer.svg?height=16) [Typer](https://typer.tiangolo.com/) — CLI mit farbiger Fortschrittsausgabe
+- ![Typer](https://api.iconify.design/devicon/typer.svg?height=16) [Typer](https://typer.tiangolo.com/) — CLI mit farbiger Fortschrittsausgabe
 
 **Paketierung**
-- ![PyPI](https://api.iconify.design/devicon:pypi.svg?height=16) [PyPI](https://pypi.org/project/finamt/) — Als installierbares Python-Paket verteilt
+- ![PyPI](https://api.iconify.design/devicon/pypi.svg?height=16) [PyPI](https://pypi.org/project/finamt/) — Als installierbares Python-Paket verteilt
 
 ## Installation
 
@@ -343,24 +343,24 @@ Jeder Beleg wird mit einer Kategorie und einer optionalen Unterkategorie versehe
 
 | Kategorie | Unterkategorien |
 |---|---|
-| ![services](https://api.iconify.design/mdi:briefcase.svg?height=16&color=%23EF4444) `services` | `freelance` `consulting` `legal` `accounting` `notary` |
-| ![products](https://api.iconify.design/ant-design:product-filled.svg?height=16&color=%23EF4444) `products` | `physical_goods` `digital_goods` `merchandise` `samples` |
-| ![material](https://api.iconify.design/solar:box-bold.svg?height=16&color=%23EF4444) `material` | `consumables` `raw_materials` `packaging` `merchandise` |
-| ![equipment](https://api.iconify.design/streamline-plump:computer-pc-desktop-solid.svg?height=16&color=%23EF4444) `equipment` | `low_value_asset` `computer` `machinery` `furniture` `tools` |
-| ![software](https://api.iconify.design/heroicons:cpu-chip-16-solid.svg?height=16&color=%23EF4444) `software` | `subscriptions` `pay_as_you_go` `licenses` `hosting` `domains` |
-| ![licensing](https://api.iconify.design/mdi:file-certificate.svg?height=16&color=%23EF4444) `licensing` | `software_licenses` `media_licenses` `other_ip` |
-| ![telecommunication](https://api.iconify.design/streamline-flex:satellite-dish-solid.svg?height=16&color=%23EF4444) `telecommunication` | `phone` `internet` `bundled` |
-| ![travel](https://api.iconify.design/mdi:airplane.svg?height=16&color=%23EF4444) `travel` | `transport` `accommodation` `meals` `per_diem` `incidental` |
-| ![car](https://api.iconify.design/boxicons:car-filled.svg?height=16&color=%23EF4444) `car` | `fuel` `parking` `garage` `repair` `maintenance` `insurance` `leasing` `rental` |
-| ![education](https://api.iconify.design/wpf:books.svg?height=16&color=%23EF4444) `education` | `courses` `books` `conferences` `certifications` |
-| ![utilities](https://api.iconify.design/roentgen:electricity.svg?height=16&color=%23EF4444) `utilities` | `electricity` `heating` `water` `waste` |
-| ![insurance](https://api.iconify.design/fa:shield.svg?height=16&color=%23EF4444) `insurance` | `liability` `health` `vehicle` `property` |
-| ![financial](https://api.iconify.design/boxicons:bank-filled.svg?height=16&color=%23EF4444) `financial` | `bank_fees` `interest` `loan_costs` `payment_fees` |
-| ![office](https://api.iconify.design/vaadin:office.svg?height=16&color=%23EF4444) `office` | `rent` `coworking` `storage` `cleaning` `security` |
-| ![marketing](https://api.iconify.design/mdi:loudspeaker.svg?height=16&color=%23EF4444) `marketing` | `advertising` `print_media` `trade_fairs` `sponsorship` `gifts` |
-| ![donations](https://api.iconify.design/mdi:donation.svg?height=16&color=%23EF4444) `donations` | `charitable` `political` `church` |
-| ![public_fees](https://api.iconify.design/mdi:gavel.svg?height=16&color=%23EF4444) `public_fees` | `broadcasting_fee` `ihk_hwk` `berufsgenossenschaft` `other_public_fee` |
-| ![other](https://api.iconify.design/flowbite:folder-plus-solid.svg?height=16&color=%23EF4444) `other` | `membership_fees` `sundry` |
+| ![services](https://api.iconify.design/mdi/briefcase.svg?height=16&color=%23EF4444) `services` | `freelance` `consulting` `legal` `accounting` `notary` |
+| ![products](https://api.iconify.design/ant-design/product-filled.svg?height=16&color=%23EF4444) `products` | `physical_goods` `digital_goods` `merchandise` `samples` |
+| ![material](https://api.iconify.design/solar/box-bold.svg?height=16&color=%23EF4444) `material` | `consumables` `raw_materials` `packaging` `merchandise` |
+| ![equipment](https://api.iconify.design/streamline-plump/computer-pc-desktop-solid.svg?height=16&color=%23EF4444) `equipment` | `low_value_asset` `computer` `machinery` `furniture` `tools` |
+| ![software](https://api.iconify.design/heroicons/cpu-chip-16-solid.svg?height=16&color=%23EF4444) `software` | `subscriptions` `pay_as_you_go` `licenses` `hosting` `domains` |
+| ![licensing](https://api.iconify.design/mdi/file-certificate.svg?height=16&color=%23EF4444) `licensing` | `software_licenses` `media_licenses` `other_ip` |
+| ![telecommunication](https://api.iconify.design/streamline-flex/satellite-dish-solid.svg?height=16&color=%23EF4444) `telecommunication` | `phone` `internet` `bundled` |
+| ![travel](https://api.iconify.design/mdi/airplane.svg?height=16&color=%23EF4444) `travel` | `transport` `accommodation` `meals` `per_diem` `incidental` |
+| ![car](https://api.iconify.design/boxicons/car-filled.svg?height=16&color=%23EF4444) `car` | `fuel` `parking` `garage` `repair` `maintenance` `insurance` `leasing` `rental` |
+| ![education](https://api.iconify.design/wpf/books.svg?height=16&color=%23EF4444) `education` | `courses` `books` `conferences` `certifications` |
+| ![utilities](https://api.iconify.design/roentgen/electricity.svg?height=16&color=%23EF4444) `utilities` | `electricity` `heating` `water` `waste` |
+| ![insurance](https://api.iconify.design/fa/shield.svg?height=16&color=%23EF4444) `insurance` | `liability` `health` `vehicle` `property` |
+| ![financial](https://api.iconify.design/boxicons/bank-filled.svg?height=16&color=%23EF4444) `financial` | `bank_fees` `interest` `loan_costs` `payment_fees` |
+| ![office](https://api.iconify.design/vaadin/office.svg?height=16&color=%23EF4444) `office` | `rent` `coworking` `storage` `cleaning` `security` |
+| ![marketing](https://api.iconify.design/mdi/loudspeaker.svg?height=16&color=%23EF4444) `marketing` | `advertising` `print_media` `trade_fairs` `sponsorship` `gifts` |
+| ![donations](https://api.iconify.design/mdi/donation.svg?height=16&color=%23EF4444) `donations` | `charitable` `political` `church` |
+| ![public_fees](https://api.iconify.design/mdi/gavel.svg?height=16&color=%23EF4444) `public_fees` | `broadcasting_fee` `ihk_hwk` `berufsgenossenschaft` `other_public_fee` |
+| ![other](https://api.iconify.design/flowbite/folder-plus-solid.svg?height=16&color=%23EF4444) `other` | `membership_fees` `sundry` |
 
 
 
@@ -401,7 +401,7 @@ Jeder Beleg wird mit einer Kategorie und einer optionalen Unterkategorie versehe
    ```bash
    pytest --cov=src --cov-report=term-missing
    ```
-4. Lint und Formatierung mit ![Ruff](https://api.iconify.design/catppuccin:ruff.svg?height=16) Ruff:
+4. Lint und Formatierung mit ![Ruff](https://api.iconify.design/catppuccin/ruff.svg?height=16) Ruff:
    ```bash
    ruff check --fix src/ tests/
    ruff format src/ tests/
