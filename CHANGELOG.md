@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.22.4 (2026-10-25)
+
+### Fixed
+
+- **Frontend: Sidebar totals ignored foreign currencies** — the sidebar previously summed and displayed every receipt's `total_amount` as if it were EUR, regardless of its actual `currency`. A $10 receipt was shown as "10,00 €" instead of "$10.00" (worth ~8,67 €), and category/supplier/section totals added raw foreign-currency amounts directly into EUR sums, producing incorrect aggregates (e.g. three $10 receipts summing to "30,00 €" instead of the correct EUR equivalent). `Sidebar.tsx` now resolves a live, receipt-date-specific currency→EUR rate via the existing `/fx-rate` backend proxy (the same source `PreviewPanel` uses) and caches it per `(currency, date)` pair; a new `eurAmount()` helper converts each receipt before it is summed into `catTotal`, `supplierTotal`, `purchaseTotal`, `saleTotal`, and `cashflowTotal`. Individual receipt rows now render `fmt(r.total_amount, r.currency)`, so each line correctly shows its own currency (e.g. `$10.00`) while totals above it are correctly expressed in EUR.
+
 ## Version 0.22.3 (2026-09-13)
 
 ### Fixed
