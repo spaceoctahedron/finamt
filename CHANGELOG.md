@@ -1,5 +1,26 @@
 # Changelog
 
+## Version 0.24.0 (2026-11-08)
+
+### Better returns overview
+
+### Added
+
+- **Returns overview: submission detail popover** — hovering a ticked cell (UStVA Q/M, USt, EÜR, ESt, GewSt, KSt, JA) opens a custom popover instead of the browser tooltip; clicking pins it (Esc, click outside or scroll closes it). It shows, one per line: submission date and time (with a "Test" tag for test transmissions), the money result, the submitted document and the Bescheid. A footer link "Häkchen entfernen" removes the tick after the usual confirmation.
+- **Money result from the database** — the popover shows the UStVA / USt balance computed from the stored receipts (`+` refund, `−` payment due, labelled "berechnet"). Clicking the amount lets you enter the real figure from the Bescheid, which takes priority; clearing it falls back to the calculated value. New endpoint `GET /submissions/result?type=&year=` (types `ustva_q1…q4`, `ustva_m01…m12`, `uste`; returns `amount: null` for other types or periods without VAT receipts).
+- **Document archive per submission** — attach a copy of what was submitted (e.g. a confirmation PDF from another tax software) and the final Bescheid from the Finanzamt to any ticked return. Allowed types: PDF, XML, PNG, JPG, TXT (max 25 MB). Documents can be viewed (eye icon, PDFs open in a new tab, XML in the viewer), replaced and removed (with confirmation). Returns submitted through finamt show "Übermittelt mit finamt" with the stored XML. New endpoints: `PATCH /submissions`, `POST /submissions/document`, `DELETE /submissions/document`; `GET /submissions/file` now serves PDFs and images with the correct media type. Uploads are stored in the project's `submitted_returns/` folder.
+- **Freiberuflich: tailored returns overview** — for the legal form Freiberuflich the annual rows are USt, EÜR (Einnahmenüberschussrechnung) and ESt (Einkommensteuererklärung) as placeholders; GewSt, KSt and JA rows are hidden. Other legal forms and an unset form keep the full list. Stored as submission types `eur` and `est`.
+- **Icons** — calendar-check, euro, upload, document and certificate icons inlined in `icons.tsx` (offline).
+
+### Changed
+
+- **Returns overview: ticked cells** — hover/pinned state uses a gold outline and light yellow background instead of switching to red.
+- **Returns overview: UStVA layout** — quarterly view shows one quarter per row; monthly view shows three months per row. Every Q/M field is now fixed at 2rem wide, the same as the annual tick boxes.
+
+### Fixed
+
+- **Freiberuflich start date lost on reload** — the taxpayer form did not read `freiberuf_beginn` back when it was opened, so the field showed empty and the next save overwrote the stored date with `null`. It is now loaded with the rest of the profile.
+
 ## Version 0.23.0 (2026-11-07)
 
 ### Added

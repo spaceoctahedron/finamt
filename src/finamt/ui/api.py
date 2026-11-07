@@ -540,9 +540,125 @@ def remove_submission(
     return {"removed": before - len(records), "total": len(records)}
 
 
+def _pick_submission_index(records: list[dict], type_: str, year: int) -> int | None:
+    """Index of the record the UI treats as *the* submission for (type, year).
+
+    Real (non-test) submissions win over test ones; the newest one is used.
+    """
+    idxs = [i for i, r in enumerate(records) if r.get("type") == type_ and r.get("year") == year]
+    if not idxs:
+        return None
+    real = [i for i in idxs if not records[i].get("use_test")]
+    return (real or idxs)[-1]
+
+
+_DOC_KINDS = {"copy": "copy_filename", "final": "final_filename"}
+_DOC_EXTENSIONS = {".pdf", ".xml", ".png", ".jpg", ".jpeg", ".txt"}
+_DOC_MAX_BYTES = 25 * 1024 * 1024
+
+
+@app.patch("/submissions", tags=["projects"])
+def update_submission(body: dict = Body(...), db: str | None = Query(default=None)):
+    """Update editable fields (result_amount, note) of the submission {type, year}."""
+    type_ = body.get("type")
+    year = body.get("year")
+    if not type_ or year is None:
+        raise HTTPException(status_code=400, detail="type and year are required")
+    db_path = _resolve_db(db)
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail="Submission not found.")
+    with _repo(db_path) as repo:
+        records = repo.get_metadata(_SUBMISSIONS_KEY) or []
+        idx = _pick_submission_index(records, type_, int(year))
+        if idx is None:
+            raise HTTPException(status_code=404, detail="Submission not found.")
+        for key in ("result_amount", "note"):
+            if key in body:
+                records[idx][key] = body[key]
+        repo.set_metadata(_SUBMISSIONS_KEY, records)
+    return {"submissions": records}
+
+
+@app.post("/submissions/document", tags=["projects"])
+async def upload_submission_document(
+    file: Annotated[UploadFile, File(description="Copy of the submission or the final decision")],
+    type: str = Query(...),
+    year: int = Query(...),
+    kind: str = Query(..., description="copy | final"),
+    db: str | None = Query(default=None),
+):
+    """Attach an uploaded document (own copy or Bescheid) to a submission."""
+    import re as _re
+    from datetime import datetime as _dtm
+
+    field = _DOC_KINDS.get(kind)
+    if field is None:
+        raise HTTPException(status_code=400, detail="kind must be 'copy' or 'final'.")
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in _DOC_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed: {', '.join(sorted(_DOC_EXTENSIONS))}",
+        )
+    content = await file.read()
+    if len(content) > _DOC_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 25 MB).")
+
+    db_path = _resolve_db(db)
+    layout = _resolve_layout(db)
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail="Submission not found.")
+    with _repo(db_path) as repo:
+        records = repo.get_metadata(_SUBMISSIONS_KEY) or []
+        idx = _pick_submission_index(records, type, year)
+        if idx is None:
+            raise HTTPException(status_code=404, detail="Submission not found.")
+        safe_type = _re.sub(r"[^A-Za-z0-9_-]", "", type)
+        filename = f"Upload_{safe_type}_{year}_{kind}_{_dtm.utcnow().strftime('%Y%m%d_%H%M%S')}{ext}"
+        layout.submitted_returns_dir.mkdir(parents=True, exist_ok=True)
+        (layout.submitted_returns_dir / filename).write_bytes(content)
+        old = records[idx].get(field)
+        if old and str(old).startswith("Upload_"):
+            (layout.submitted_returns_dir / old).unlink(missing_ok=True)
+        records[idx][field] = filename
+        records[idx][field.replace("_filename", "_original_name")] = file.filename
+        repo.set_metadata(_SUBMISSIONS_KEY, records)
+    return {"submissions": records}
+
+
+@app.delete("/submissions/document", tags=["projects"])
+def delete_submission_document(
+    type: str = Query(...),
+    year: int = Query(...),
+    kind: str = Query(..., description="copy | final"),
+    db: str | None = Query(default=None),
+):
+    """Detach (and delete) an uploaded document from a submission."""
+    field = _DOC_KINDS.get(kind)
+    if field is None:
+        raise HTTPException(status_code=400, detail="kind must be 'copy' or 'final'.")
+    db_path = _resolve_db(db)
+    layout = _resolve_layout(db)
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail="Submission not found.")
+    with _repo(db_path) as repo:
+        records = repo.get_metadata(_SUBMISSIONS_KEY) or []
+        idx = _pick_submission_index(records, type, year)
+        if idx is None:
+            raise HTTPException(status_code=404, detail="Submission not found.")
+        old = records[idx].pop(field, None)
+        records[idx].pop(field.replace("_filename", "_original_name"), None)
+        if old and str(old).startswith("Upload_"):
+            (layout.submitted_returns_dir / old).unlink(missing_ok=True)
+        repo.set_metadata(_SUBMISSIONS_KEY, records)
+    return {"submissions": records}
+
+
 @app.get("/submissions/file", tags=["projects"])
 def get_submission_file(filename: str = Query(...), db: str | None = Query(default=None)):
-    """Return the contents of a saved submitted-return XML by filename."""
+    """Return a saved submitted-return file (XML, or an uploaded PDF/image) by filename."""
+    import mimetypes as _mt
+
     from fastapi.responses import Response as _Resp
 
     layout = _resolve_layout(db)
@@ -554,7 +670,15 @@ def get_submission_file(filename: str = Query(...), db: str | None = Query(defau
         raise HTTPException(status_code=400, detail="Invalid filename.") from None
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found.")
-    return _Resp(content=file_path.read_bytes(), media_type="text/xml; charset=UTF-8")
+    if file_path.suffix.lower() == ".xml":
+        media_type = "text/xml; charset=UTF-8"
+    else:
+        media_type = _mt.guess_type(file_path.name)[0] or "application/octet-stream"
+    return _Resp(
+        content=file_path.read_bytes(),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{file_path.name}"'},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1150,6 +1274,47 @@ def _ustva_period_info(
     else:
         raise ValueError("Either quarter or month must be specified")
     return eric_period, start, end, sub_type
+
+
+@app.get("/submissions/result", tags=["projects"])
+def get_submission_result(
+    type: str = Query(...),
+    year: int = Query(..., ge=2000, le=2100),
+    db: str | None = Query(default=None),
+):
+    """Money result computed from the stored receipts for a UStVA period or the annual USt.
+
+    ``amount > 0`` means refund from the Finanzamt, ``amount < 0`` a payment due
+    (the opposite sign of ``USTVAReport.net_liability``).  ``amount`` is ``null``
+    for return types that cannot be derived from receipts.
+    """
+    import calendar
+    import re as _re
+
+    if type == "uste":
+        start, end = date(year, 1, 1), date(year, 12, 31)
+    else:
+        m = _re.fullmatch(r"ustva_(?:q([1-4])|m(0[1-9]|1[0-2]))", type)
+        if not m:
+            return {"amount": None}
+        if m.group(1):
+            q = int(m.group(1))
+            start = date(year, 3 * q - 2, 1)
+            end_month = 3 * q
+        else:
+            start = date(year, int(m.group(2)), 1)
+            end_month = int(m.group(2))
+        end = date(year, end_month, calendar.monthrange(year, end_month)[1])
+
+    db_path = _resolve_db(db)
+    if not db_path.exists():
+        return {"amount": None}
+    with _repo(db_path) as repo:
+        receipts = list(repo.find_by_period(start, end))
+    report = generate_ustva(receipts, start, end)
+    if report.total_receipts == 0 and report.einfuhr_vat == 0:
+        return {"amount": None}
+    return {"amount": float(-report.net_liability)}
 
 
 @app.post("/tax/ustva/submit", tags=["tax"])
