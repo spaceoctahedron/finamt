@@ -1,5 +1,29 @@
 # Changelog
 
+## Version 0.23.0 (2026-11-07)
+
+### Added
+
+- **Taxpayer profile: Rechtsform dropdown** — new legal-form selector (Freiberuflich, GmbH, Angestellt, Einzelunternehmen, UG (haftungsbeschränkt), GbR, OHG, KG, GmbH & Co. KG, AG). Profile fields are shown depending on the selection: with no form selected only the dropdown is shown; Unternehmensgegenstand and Gründungsjahr appear for companies; Stammkapital and eingezahltes Kapital appear for capital companies only.
+- **Freiberuflich: Beginn der Tätigkeit** — freelancers get a date field (`freiberuf_beginn`) instead of Gründungsjahr and Unternehmensgegenstand; its year is stored as `gründungsjahr` on save.
+- **Returns overview: switchable UStVA-Rhythmus badge** — the UStVA row shows a `Monatlich` / `Vierteljährl.` badge that toggles the filing frequency directly. The setup box is shown only while the start year or the frequency is missing.
+- **Returns overview: frozen first column and auto-scroll** — the return-type column stays sticky while scrolling horizontally, and the grid scrolls to the current year on open and when the project, year range or frequency changes.
+- **KYC / KYS panel is collapsible** — closed by default; geocoding runs only while it is open.
+- **Project selector** — loads the project list on mount so the label shows the real project name.
+
+### Changed
+
+- **GewSt panel owns GewSt-specific data** — Hebesatz (editable, validated 200–900, committed on blur/Enter) and Betriebsstätte Z. 26–28 (clickable Ja/Nein toggles) moved from the taxpayer profile into the GewSt panel and are saved to the profile via `onUpdateTaxpayer`. The profile save preserves the stored Hebesatz.
+- **UStVA-Rhythmus removed from the taxpayer profile** — now managed in the returns overview.
+- **Delete confirmation dialog restyled** — returns overview confirm dialog uses `border-2 border-black shadow-[4px_4px_0_#000]` instead of `shadow-xl`.
+
+### Fixed
+
+- **Active project lost after reload** — `activeDb` was plain React state initialised to `null`, so every reload fell back to the `default` project and showed another project's data (and made submissions appear empty). The active project is now persisted in `localStorage` (`finamt.activeDb`).
+- **Stale data after switching projects** — taxpayer, receipts and submissions fetches use cancellation guards so late responses from the previous project can no longer overwrite the current one; receipts, taxpayer and submissions are cleared on a real project switch. Re-selecting the same project no longer wipes state.
+- **Taxpayer profile deleted without confirmation** — the "Löschen" button now requires an inline confirmation (Abbrechen / Ja, löschen) before calling `DELETE /taxpayer`.
+- **Build error TS6133** — removed the unused `onEditTaxpayer` prop from `GewStPanel` and its call in `Dashboard`.
+
 ## Version 0.22.4 (2026-10-25)
 
 ### Fixed
