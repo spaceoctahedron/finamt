@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 0.25.0 (2026-11-08)
+
+### Added
+
+- **Receipt number warnings** — the receipt preview shows a light amber warning under the Beleg-Nr. row when a receipt has no receipt number, and when another receipt in the active project has the same number (case-insensitive, trimmed). While editing, the warning follows the number being typed. `PreviewPanel` receives the full receipt list through a new optional `allReceipts` prop.
+- **Upload progress: named extraction steps** — the streaming progress label in the sidebar upload button shows what each extraction agent is doing instead of "Agent N/4": Metadata, Counterparty, Amounts, Line items (DE: Metadaten, Geschäftspartner, Beträge, Positionen). Multi-file uploads keep the `[1/3]` prefix. New i18n keys `sidebar.agent_step_1` … `sidebar.agent_step_4`.
+
+### Changed
+
+- **Extraction prompt: receipt number fallback** — the metadata agent prompt now says `receipt_number = receipt number, else invoice number, else Transaction ID`, so receipts without an explicit number (e.g. GitHub payment receipts) get their Transaction ID.
+
+### Fixed
+
+- **Sidebar: long text ran into amounts** — category and supplier header rows keep a gap between the name and the amount; long names truncate with an ellipsis (supplier names also show a tooltip with the full name).
+- **Sidebar: upload button label wrapped** — the progress label (e.g. "[2/3] Geschäftspartner...") is truncated to a single line and the spinner no longer shrinks.
+
 ## Version 0.24.0 (2026-11-08)
 
 ### Better returns overview

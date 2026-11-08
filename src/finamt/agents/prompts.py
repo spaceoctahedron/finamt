@@ -38,6 +38,7 @@ _CATS = "|".join(RECEIPT_CATEGORIES)
 
 AGENT1_TEMPLATE = """\
 Extract receipt number, date, and category from the text below.
+receipt_number = receipt number, else invoice number, else Transaction ID.
 Return only this JSON, no other text:
 {{"receipt_number": null, "receipt_date": "YYYY-MM-DD", "category": "{cats}"}}
 
