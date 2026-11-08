@@ -23,22 +23,27 @@ from __future__ import annotations
 import logging
 import shutil
 import time
+from decimal import Decimal
 from pathlib import Path
 
 from finamt import progress as _progress
 
 from ..exceptions import InvalidReceiptError, OCRProcessingError
-from ..models import ExtractionResult, ReceiptData, _content_hash
+from ..models import ExtractionResult, ReceiptCategory, ReceiptData, _content_hash
 from ..ocr_processor import OCRProcessor
 from ..storage.project import ProjectLayout, layout_from_db_path, resolve_project
 from ..storage.sqlite import SQLiteRepository
 from .config import AgentsConfig, Config
-from .pipeline import run_pipeline
+from .pipeline import implied_vat_rate, run_pipeline
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
 _UNSET = object()  # sentinel: distinguish "not passed" from None
+
+# A supplier needs at least this many classified receipts in the DB before its
+# historical category/subcategory overrides the AI suggestion.
+_SUPPLIER_HISTORY_MIN_RECEIPTS = 2
 
 
 class FinanceAgent:
@@ -152,9 +157,10 @@ class FinanceAgent:
             # Receipts with warnings are saved and shown with a warning banner
             # in the UI — the user decides to correct or delete them.
 
-            # 9 — Save + PDF copy -------------------------------------------
+            # 9 — Known-supplier override + Save + PDF copy ------------------
             if self._db_path:
                 with SQLiteRepository(self._db_path) as repo:
+                    self._apply_supplier_history(repo, receipt_data)
                     repo.save(receipt_data)
                 if pdf_file_path:
                     self._store_pdf(pdf_file_path, receipt_data.id)
@@ -191,6 +197,58 @@ class FinanceAgent:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _apply_supplier_history(repo: SQLiteRepository, receipt: ReceiptData) -> None:
+        """Override AI category/subcategory and VAT rate for well-known suppliers.
+
+        When the supplier already has at least ``_SUPPLIER_HISTORY_MIN_RECEIPTS``
+        receipts in the DB, the dominant historical values replace the AI
+        suggestion.
+        """
+        name = receipt.counterparty.name if receipt.counterparty else None
+        rtype = str(receipt.receipt_type)
+
+        defaults = repo.get_known_supplier_defaults(
+            name, receipt_type=rtype, min_receipts=_SUPPLIER_HISTORY_MIN_RECEIPTS
+        )
+        if defaults:
+            logger.info(
+                "Known supplier %r (%d receipts): category %s/%s -> %s/%s",
+                name,
+                defaults["count"],
+                receipt.category,
+                receipt.subcategory,
+                defaults["category"],
+                defaults["subcategory"],
+            )
+            receipt.category = ReceiptCategory(defaults["category"])
+            receipt.subcategory = defaults["subcategory"] or None
+
+        known_vat = repo.get_known_supplier_vat(
+            name, receipt_type=rtype, min_receipts=_SUPPLIER_HISTORY_MIN_RECEIPTS
+        )
+        if known_vat:
+            FinanceAgent._apply_known_vat(receipt, known_vat["vat_percentage"], name)
+
+    @staticmethod
+    def _apply_known_vat(receipt: ReceiptData, rate: Decimal, name: str | None) -> None:
+        """Replace the receipt's VAT rate with the supplier's usual one, unless the
+        document's own amounts already confirm the extracted rate."""
+        current = receipt.vat_percentage
+        if current is not None and current == rate:
+            return
+        # A VAT amount > 0 that matches the extracted rate is hard evidence from
+        # the document itself - keep it (e.g. a one-off 19 % invoice).
+        if current is not None and receipt.total_amount and receipt.vat_amount:
+            implied = implied_vat_rate(float(receipt.total_amount), float(receipt.vat_amount))
+            if implied is not None and implied > 0 and implied == float(current):
+                return
+        logger.info("Known supplier %r: VAT rate %s -> %s", name, current, rate)
+        receipt.vat_percentage = rate
+        if receipt.total_amount is not None:
+            net = receipt.total_amount / (Decimal("1") + rate / Decimal("100"))
+            receipt.vat_amount = (receipt.total_amount - net).quantize(Decimal("0.01"))
 
     def _store_pdf(self, src: Path, receipt_id: str) -> None:
         """Copy the original file to <project>/pdfs/<id>.<ext>, preserving the source extension."""

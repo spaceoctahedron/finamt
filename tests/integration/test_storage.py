@@ -272,6 +272,43 @@ class TestCounterpartyDedup:
         assert f1.counterparty.id != f2.counterparty.id
 
 
+class TestKnownSupplierDefaults:
+    def _save(self, repo, name, category, subcategory=None, receipt_type="purchase"):
+        r = _make_receipt(
+            counterparty=_make_counterparty(name),
+            category=category,
+            receipt_type=receipt_type,
+        )
+        r.subcategory = subcategory
+        repo.save(r)
+
+    def test_unknown_supplier_returns_empty(self, repo):
+        assert repo.get_known_supplier_defaults("Nobody") == {}
+
+    def test_below_threshold_returns_empty(self, repo):
+        self._save(repo, "Vodafone", "software", "saas")
+        assert repo.get_known_supplier_defaults("Vodafone", min_receipts=2) == {}
+
+    def test_dominant_category_and_subcategory(self, repo):
+        self._save(repo, "Vodafone", "software", "saas")
+        self._save(repo, "Vodafone", "software", "saas")
+        self._save(repo, "Vodafone", "office")
+        got = repo.get_known_supplier_defaults("vodafone", receipt_type="purchase")
+        assert got["category"] == "software"
+        assert got["subcategory"] == "saas"
+        assert got["count"] == 2
+
+    def test_other_category_ignored(self, repo):
+        self._save(repo, "Acme", "other")
+        self._save(repo, "Acme", "other")
+        assert repo.get_known_supplier_defaults("Acme") == {}
+
+    def test_receipt_type_filter(self, repo):
+        self._save(repo, "Acme", "software", receipt_type="sale")
+        self._save(repo, "Acme", "software", receipt_type="sale")
+        assert repo.get_known_supplier_defaults("Acme", receipt_type="purchase") == {}
+
+
 # ---------------------------------------------------------------------------
 # Line items
 # ---------------------------------------------------------------------------
@@ -648,6 +685,33 @@ class TestCounterpartyManagement:
         assert result["tax_number"] == "123/456/78901"
         assert result["address"]["street_and_number"] == "Main St 42"
         assert result["address"]["city"] == "Berlin"
+
+
+# ---------------------------------------------------------------------------
+# Startup deduplication sweep
+# ---------------------------------------------------------------------------
+
+
+class TestKnownSupplierVat:
+    def _save(self, repo, name, vat):
+        repo.save(_make_receipt(counterparty=_make_counterparty(name), vat_percentage=vat))
+
+    def test_unknown_or_too_few(self, repo):
+        assert repo.get_known_supplier_vat("Nobody") == {}
+        self._save(repo, "Rent GmbH", "0")
+        assert repo.get_known_supplier_vat("Rent GmbH") == {}
+
+    def test_zero_rate_is_returned(self, repo):
+        self._save(repo, "Rent GmbH", "0")
+        self._save(repo, "Rent GmbH", "0")
+        got = repo.get_known_supplier_vat("rent gmbh")
+        assert got["vat_percentage"] == Decimal("0")
+        assert got["count"] == 2
+
+    def test_mixed_rates_not_overridden(self, repo):
+        self._save(repo, "Mixed", "7")
+        self._save(repo, "Mixed", "19")
+        assert repo.get_known_supplier_vat("Mixed") == {}
 
 
 # ---------------------------------------------------------------------------

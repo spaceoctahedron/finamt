@@ -22,6 +22,8 @@ Debug output saved to ~/.finamt/debug/<receipt_id>/:
 from __future__ import annotations
 
 import json
+import logging
+import re
 import time
 from pathlib import Path
 
@@ -45,6 +47,8 @@ from .prompts import (
     build_agent4_prompt,
 )
 
+logger = logging.getLogger(__name__)
+
 _DEFAULT_DEBUG_ROOT = Path.home() / ".finamt" / "debug"
 
 
@@ -57,10 +61,16 @@ def _ts() -> str:
 # ---------------------------------------------------------------------------
 
 
+_NULL_STRINGS = {"null", "none", "n/a", "na", "nan", "nil", "undefined", "-", "—"}
+
+
 def _str_or_none(v) -> str | None:
     if v is None:
         return None
     s = str(v).strip()
+    # LLMs often echo the template's `null` as the literal text "null"
+    if s.lower() in _NULL_STRINGS:
+        return None
     # Reject obvious field labels (end with ":" or are pure numbers/short garbage)
     if s.endswith(":") or len(s) < 2:
         return None
@@ -135,6 +145,71 @@ def _validate_agent3(raw: dict | None) -> dict:
     raw_cur = str(raw.get("currency") or "").strip().upper()
     result["currency"] = raw_cur if (2 <= len(raw_cur) <= 4 and raw_cur.isalpha()) else "EUR"
 
+    return result
+
+
+# Rates the amounts-based check may snap to (DE standard, reduced, zero,
+# plus the temporary 2020 rates which still occur on old documents).
+_STANDARD_VAT_RATES = (0.0, 5.0, 7.0, 16.0, 19.0)
+_RATE_TOLERANCE = 0.6  # percentage points
+
+
+def implied_vat_rate(total: float | None, vat_amount: float | None) -> float | None:
+    """Rate implied by a gross total and its VAT amount, snapped to a standard
+    rate.  ``None`` when it cannot be derived or matches no standard rate
+    (e.g. mixed-rate receipts)."""
+    if total is None or vat_amount is None or vat_amount < 0 or vat_amount >= total:
+        return None
+    net = total - vat_amount
+    if net <= 0:
+        return None
+    implied = vat_amount / net * 100
+    best = min(_STANDARD_VAT_RATES, key=lambda r: abs(r - implied))
+    return best if abs(best - implied) <= _RATE_TOLERANCE else None
+
+
+def _rate_in_text(rate: float, text: str) -> bool:
+    """True if ``rate`` is printed in the text as a percentage (19 %, 19,00%, 19 Prozent)."""
+    if float(rate).is_integer():
+        num = str(int(rate))
+    else:
+        num = re.escape(str(rate)).replace(r"\.", "[.,]")
+    pattern = rf"(?<![\d.,]){num}(?:[.,]0+)?\s*(?:%|prozent|percent)"
+    return re.search(pattern, text, re.IGNORECASE) is not None
+
+
+def _reconcile_vat(amounts: dict, raw_text: str) -> dict:
+    """Fix typical LLM VAT-rate mistakes using the document itself.
+
+    1. VAT amount is 0            -> rate is 0.
+    2. Amounts imply a std rate   -> that rate wins over the LLM's rate.
+    3. Rate > 0 backed neither by a VAT amount nor printed as a percentage
+       in the text is a guess (typically 19) -> dropped (unknown).
+    """
+    if not amounts:
+        return amounts
+    result = dict(amounts)
+    pct = result.get("vat_percentage")
+    amt = result.get("vat_amount")
+    total = result.get("total_amount")
+
+    if amt is not None and amt == 0:
+        result["vat_percentage"] = 0.0
+        return result
+
+    implied = implied_vat_rate(total, amt)
+    if implied is not None:
+        if pct != implied:
+            logger.info("VAT rate corrected from amounts: %s -> %s", pct, implied)
+        result["vat_percentage"] = implied
+        return result
+
+    if pct and pct > 0 and not amt and not _rate_in_text(pct, raw_text):
+        logger.info("VAT rate %s not found in text and no VAT amount - dropped", pct)
+        result.pop("vat_percentage", None)
+
+    if result.get("vat_percentage") == 0 and "vat_amount" not in result:
+        result["vat_amount"] = 0.0
     return result
 
 
@@ -334,7 +409,7 @@ def run_pipeline(
         expected_keys=["total_amount", "vat_percentage", "vat_amount", "currency"],
         debug_dir=debug_dir,
     )
-    amounts = _validate_agent3(raw3)
+    amounts = _reconcile_vat(_validate_agent3(raw3), raw_text)
 
     # ── Agent 4: line items ────────────────────────────────────────────────
     _progress.emit(f"  {_ts()} → Agent 4: line items")

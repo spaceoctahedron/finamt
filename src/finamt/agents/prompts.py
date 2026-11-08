@@ -38,7 +38,7 @@ _CATS = "|".join(RECEIPT_CATEGORIES)
 
 AGENT1_TEMPLATE = """\
 Extract receipt number, date, and category from the text below.
-receipt_number = receipt number, else invoice number, else Transaction ID.
+receipt_number = receipt no., Rechnungsnr., invoice no., else Transaction ID.
 Return only this JSON, no other text:
 {{"receipt_number": null, "receipt_date": "YYYY-MM-DD", "category": "{cats}"}}
 
@@ -77,7 +77,11 @@ Return only this JSON, no other text:
 
 Rules: all numeric values are numbers, not strings. \
 German number format "1.234,56" means 1234.56. \
-vat_percentage is the rate e.g. 19.0 for 19%%. \
+vat_percentage is the VAT rate printed on the receipt (MwSt, USt, VAT), \
+for example 19, 7 or 0. Copy it from the text, never guess or assume 19. \
+Use 0 (and vat_amount 0) if the receipt shows no tax, 0%, steuerfrei, \
+Kleinunternehmer (§19 UStG), reverse charge or innergemeinschaftliche Lieferung. \
+Use null only if no VAT information appears at all. \
 vat_amount is the absolute tax amount, not the rate. \
 currency is the ISO 4217 code e.g. EUR, USD, GBP.
 
@@ -118,6 +122,18 @@ def _truncate(text: str, max_chars: int = 3000) -> str:
     return text[:max_chars] + "\n[... truncated ...]"
 
 
+def _truncate_head_tail(text: str, max_chars: int = 3000, head: int = 1000) -> str:
+    """Keep the start and the END of the text.
+
+    Totals and VAT breakdowns sit at the bottom of invoices; cutting only the
+    tail would hide them and make the model guess the rate.
+    """
+    if len(text) <= max_chars:
+        return text
+    tail = max_chars - head
+    return text[:head] + "\n[... truncated ...]\n" + text[-tail:]
+
+
 def build_agent1_prompt(text: str) -> str:
     return AGENT1_TEMPLATE.format(cats=_CATS, text=_truncate(text))
 
@@ -151,7 +167,7 @@ def build_agent2_prompt(text: str, receipt_type: str, taxpayer_info: dict | None
 
 
 def build_agent3_prompt(text: str) -> str:
-    return AGENT3_TEMPLATE.format(text=_truncate(text))
+    return AGENT3_TEMPLATE.format(text=_truncate_head_tail(text))
 
 
 def build_agent4_prompt(text: str) -> str:

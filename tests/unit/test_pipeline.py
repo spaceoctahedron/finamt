@@ -6,7 +6,7 @@ Unit tests for pipeline helper functions.
 
 from __future__ import annotations
 
-from finamt.agents.pipeline import _strip_taxpayer_fields
+from finamt.agents.pipeline import _reconcile_vat, _strip_taxpayer_fields, implied_vat_rate
 
 # ---------------------------------------------------------------------------
 # _strip_taxpayer_fields
@@ -146,3 +146,33 @@ class TestStripTaxpayerFields:
         original_vat = cp["vat_id"]
         _strip_taxpayer_fields(cp, TAXPAYER)
         assert cp["vat_id"] == original_vat  # original dict unchanged
+
+
+# ---------------------------------------------------------------------------
+# _reconcile_vat / implied_vat_rate
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileVat:
+    def test_zero_vat_amount_forces_zero_rate(self):
+        got = _reconcile_vat({"total_amount": 113.0, "vat_percentage": 19.0, "vat_amount": 0.0}, "")
+        assert got["vat_percentage"] == 0.0
+
+    def test_amounts_imply_rate_overrides_llm(self):
+        got = _reconcile_vat({"total_amount": 107.0, "vat_percentage": 19.0, "vat_amount": 7.0}, "")
+        assert got["vat_percentage"] == 7.0
+
+    def test_ungrounded_rate_is_dropped(self):
+        got = _reconcile_vat({"total_amount": 113.0, "vat_percentage": 19.0}, "Summe 113,00 EUR")
+        assert "vat_percentage" not in got
+
+    def test_rate_printed_in_text_is_kept(self):
+        got = _reconcile_vat({"total_amount": 119.0, "vat_percentage": 19.0}, "MwSt 19,00 % 19,00")
+        assert got["vat_percentage"] == 19.0
+
+    def test_zero_rate_gets_zero_amount(self):
+        got = _reconcile_vat({"total_amount": 50.0, "vat_percentage": 0.0}, "steuerfrei")
+        assert got["vat_amount"] == 0.0
+
+    def test_mixed_rates_left_alone(self):
+        assert implied_vat_rate(100.0, 12.0) is None

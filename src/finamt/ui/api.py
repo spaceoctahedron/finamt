@@ -509,7 +509,8 @@ def get_submissions(db: str | None = Query(default=None)):
         return {"submissions": []}
     with _repo(db_path) as repo:
         records = repo.get_metadata(_SUBMISSIONS_KEY) or []
-    return {"submissions": records}
+    # Test (ELSTER test server) filings have no legal effect and are ignored entirely
+    return {"submissions": [r for r in records if not r.get("use_test")]}
 
 
 @app.post("/submissions", tags=["projects"])
@@ -795,8 +796,8 @@ def create_manual_receipt(
         counterparty=counterparty,
         receipt_date=receipt_date,
         total_amount=total if total else None,
-        vat_percentage=vat if vat else None,
-        vat_amount=vat_amount if vat else None,
+        vat_percentage=vat,
+        vat_amount=vat_amount,
         category=rcat,
         currency=body.currency,
     )
@@ -1490,7 +1491,7 @@ def post_ustva_submit(
         except Exception:
             xml_filename = None
 
-        if db_path.exists():
+        if db_path.exists() and not body.use_test:  # test filings are never recorded
             with _repo(db_path) as _r:
                 _records = _r.get_metadata("submissions") or []
                 _records.append(
@@ -1812,7 +1813,7 @@ def post_uste_submit(
         except Exception:
             xml_filename = None  # non-fatal — submission already succeeded
 
-        if db_path.exists():
+        if db_path.exists() and not body.use_test:  # test filings are never recorded
             with _repo(db_path) as _r:
                 _records = _r.get_metadata("submissions") or []
                 _records.append(
@@ -2029,7 +2030,7 @@ def post_kst_submit(
             "Stammkapital", "Eigenkapital",
         }
         def _net(r):
-            vat_rate = (r.vat_percentage or 19) / 100
+            vat_rate = (19 if r.vat_percentage is None else r.vat_percentage) / 100
             return r.business_net or r.net_amount or ((r.total_amount or 0) / (1 + vat_rate))
 
         revenue = sum(_net(r) for r in receipts if r.receipt_type == "sale"     and (r.category or "") not in _CASHFLOW_CATS)
@@ -2173,7 +2174,7 @@ def post_kst_submit(
         except Exception:
             xml_filename = None
 
-        if db_path.exists():
+        if db_path.exists() and not body.use_test:  # test filings are never recorded
             with _repo(db_path) as _r:
                 _records = _r.get_metadata("submissions") or []
                 _records.append(
@@ -2238,7 +2239,7 @@ def post_kst_xml(
             "Stammkapital", "Eigenkapital",
         }
         def _net(r):
-            vat_rate = (r.vat_percentage or 19) / 100
+            vat_rate = (19 if r.vat_percentage is None else r.vat_percentage) / 100
             return r.business_net or r.net_amount or ((r.total_amount or 0) / (1 + vat_rate))
 
         revenue = sum(_net(r) for r in receipts if r.receipt_type == "sale"     and (r.category or "") not in _CASHFLOW_CATS)

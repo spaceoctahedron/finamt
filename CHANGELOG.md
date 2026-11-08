@@ -1,5 +1,27 @@
 # Changelog
 
+## Version 0.26.0 (2026-11-08)
+
+### Added
+
+- **Supplier history overrides AI** — category, subcategory and VAT rate of known suppliers (2+ receipts) come from the DB instead of the model.
+- **VAT reconciliation** — extracted VAT % is checked against the document amounts; Agent 3 prompt no longer anchors on 19 %, long documents keep head and tail.
+- **Live Netto in edit mode** — net and VAT amount update while typing total or VAT %.
+- **Freiberuflich: hidden returns** — GewSt, KSt and JA are hidden; a legend toggle lets you show them in the overview and on the page (stored per project in the browser).
+- **Tests reorganised** into `tests/unit`, `tests/integration`, `tests/e2e`.
+
+### Changed
+
+- **ELSTER test filings are ignored** — never recorded and hidden from the submissions list; only real submissions show as submitted.
+- **Ministral removed** from the model registry (crashed Apple Silicon machines); `mistral:7b` stays pinned to the MLX 4-bit build.
+
+### Fixed
+
+- **0 % VAT** no longer turned into 19 % or empty in the API.
+- **Literal "null" text** from the LLM is filtered on extraction and on read.
+- **Finanzamtsnr. empty** for 13-digit Steuernummern — now taken from the first four digits.
+- **"Bereits übermittelt" warning** no longer shown next to the success message right after a submission (UStVA, USt, KSt).
+
 ## Version 0.25.0 (2026-11-08)
 
 ### Added

@@ -44,6 +44,15 @@ from .project import resolve_project
 DEFAULT_DB_PATH = resolve_project().db_path  # ~/.finamt/default/finamt.db
 _SCHEMA_VERSION = 1
 
+_NULL_STRINGS = frozenset({"null", "none", "n/a", "na", "nan", "nil", "undefined"})
+
+
+def _null_to_none(v):
+    """Map the literal text "null"/"none"/... (written by LLMs) to ``None``."""
+    if isinstance(v, str) and v.strip().lower() in _NULL_STRINGS:
+        return None
+    return v
+
 
 class SQLiteRepository:
     """Persistent SQLite storage implementing ``ReceiptRepository``."""
@@ -350,21 +359,24 @@ class SQLiteRepository:
             self._conn.commit()
 
     def _row_to_counterparty(self, row: sqlite3.Row) -> Counterparty:
+        # Older rows may hold the literal text "null" written by the LLM;
+        # present those as missing values.
+        def _c(key: str):
+            return _null_to_none(row[key]) if key in row.keys() else None
+
         return Counterparty(
             id=row["id"],
-            name=row["name"],
+            name=_c("name"),
             address=Address(
-                street_and_number=row["street_and_number"],
-                address_supplement=row["address_supplement"]
-                if "address_supplement" in row.keys()
-                else None,
-                postcode=row["postcode"],
-                city=row["city"],
-                state=row["state"],
-                country=row["country"],
+                street_and_number=_c("street_and_number"),
+                address_supplement=_c("address_supplement"),
+                postcode=_c("postcode"),
+                city=_c("city"),
+                state=_c("state"),
+                country=_c("country"),
             ),
-            tax_number=row["tax_number"],
-            vat_id=row["vat_id"],
+            tax_number=_c("tax_number"),
+            vat_id=_c("vat_id"),
         )
 
     # ------------------------------------------------------------------
@@ -847,17 +859,17 @@ class SQLiteRepository:
         return [
             {
                 "id": r["id"],
-                "name": r["name"],
-                "tax_number": r["tax_number"],
-                "vat_id": r["vat_id"],
+                "name": _null_to_none(r["name"]),
+                "tax_number": _null_to_none(r["tax_number"]),
+                "vat_id": _null_to_none(r["vat_id"]),
                 "verified": bool(r["verified"]),
                 "address": {
-                    "street_and_number": r["street_and_number"],
-                    "address_supplement": r["address_supplement"],
-                    "postcode": r["postcode"],
-                    "city": r["city"],
-                    "state": r["state"],
-                    "country": r["country"],
+                    "street_and_number": _null_to_none(r["street_and_number"]),
+                    "address_supplement": _null_to_none(r["address_supplement"]),
+                    "postcode": _null_to_none(r["postcode"]),
+                    "city": _null_to_none(r["city"]),
+                    "state": _null_to_none(r["state"]),
+                    "country": _null_to_none(r["country"]),
                 },
             }
             for r in rows
@@ -903,6 +915,121 @@ class SQLiteRepository:
             "subcategory": row["subcategory"] or "",
         }
 
+    def get_known_supplier_defaults(
+        self,
+        name: str | None,
+        receipt_type: str | None = None,
+        min_receipts: int = 2,
+    ) -> dict:
+        """Return the historically dominant (category, subcategory) for a supplier.
+
+        The supplier is matched by name (case-insensitive), consistent with
+        :meth:`get_or_create_counterparty`.  Only receipts with a real
+        category (not ``'other'``) are counted.  The most frequent category
+        wins; the subcategory is then the most frequent one within that
+        category (empty string when none was ever set).
+
+        Returns ``{}`` when the supplier is unknown or has fewer than
+        *min_receipts* classified receipts, so callers can keep the AI value.
+        """
+        if not name or not name.strip():
+            return {}
+        params: list = [name.strip()]
+        type_clause = ""
+        if receipt_type:
+            type_clause = " AND r.receipt_type = ?"
+            params.append(str(receipt_type))
+
+        cat_row = self._conn.execute(
+            f"""
+            SELECT r.category AS category, COUNT(*) AS cnt
+            FROM   receipts r
+            JOIN   counterparties c ON c.id = r.counterparty_id
+            WHERE  LOWER(c.name) = LOWER(?)
+              AND  r.category IS NOT NULL
+              AND  r.category != 'other'
+              {type_clause}
+            GROUP BY r.category
+            ORDER BY cnt DESC, MAX(r.created_at) DESC
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+        if cat_row is None or cat_row["cnt"] < min_receipts:
+            return {}
+
+        sub_row = self._conn.execute(
+            f"""
+            SELECT r.subcategory AS subcategory, COUNT(*) AS cnt
+            FROM   receipts r
+            JOIN   counterparties c ON c.id = r.counterparty_id
+            WHERE  LOWER(c.name) = LOWER(?)
+              AND  r.category = ?
+              AND  r.subcategory IS NOT NULL
+              AND  r.subcategory != ''
+              {type_clause}
+            GROUP BY r.subcategory
+            ORDER BY cnt DESC, MAX(r.created_at) DESC
+            LIMIT 1
+            """,
+            [params[0], cat_row["category"], *params[1:]],
+        ).fetchone()
+        return {
+            "category": cat_row["category"],
+            "subcategory": (sub_row["subcategory"] if sub_row else "") or "",
+            "count": cat_row["cnt"],
+        }
+
+    def get_known_supplier_vat(
+        self,
+        name: str | None,
+        receipt_type: str | None = None,
+        min_receipts: int = 2,
+        min_share: float = 0.8,
+    ) -> dict:
+        """Return the dominant VAT rate (incl. 0) historically used for a supplier.
+
+        Matching is by counterparty name, case-insensitive.  The rate is only
+        returned when at least *min_receipts* receipts carry a VAT percentage
+        and one rate accounts for at least *min_share* of them, so suppliers
+        with mixed rates (e.g. 7 % and 19 %) are left to the extraction.
+
+        Returns ``{"vat_percentage": Decimal, "count": int}`` or ``{}``.
+        """
+        if not name or not name.strip():
+            return {}
+        params: list = [name.strip()]
+        type_clause = ""
+        if receipt_type:
+            type_clause = " AND r.receipt_type = ?"
+            params.append(str(receipt_type))
+        rows = self._conn.execute(
+            f"""
+            SELECT r.vat_percentage AS vat
+            FROM   receipts r
+            JOIN   counterparties c ON c.id = r.counterparty_id
+            WHERE  LOWER(c.name) = LOWER(?)
+              AND  r.vat_percentage IS NOT NULL
+              AND  r.vat_percentage != ''
+              {type_clause}
+            """,
+            params,
+        ).fetchall()
+        counts: dict[Decimal, int] = {}
+        for row in rows:
+            try:
+                rate = Decimal(str(row["vat"])).quantize(Decimal("0.01"))
+            except Exception:
+                continue
+            counts[rate] = counts.get(rate, 0) + 1
+        total = sum(counts.values())
+        if total < min_receipts:
+            return {}
+        rate, n = max(counts.items(), key=lambda kv: kv[1])
+        if n / total < min_share:
+            return {}
+        return {"vat_percentage": rate, "count": n}
+
     def set_counterparty_verified(self, cp_id: str, verified: bool) -> None:
         self._exec(
             "UPDATE counterparties SET verified = ? WHERE id = ?",
@@ -921,18 +1048,18 @@ class SQLiteRepository:
         return [
             {
                 "id": r["id"],
-                "name": r["name"],
-                "tax_number": r["tax_number"],
-                "vat_id": r["vat_id"],
+                "name": _null_to_none(r["name"]),
+                "tax_number": _null_to_none(r["tax_number"]),
+                "vat_id": _null_to_none(r["vat_id"]),
                 "verified": bool(r["verified"]),
                 "created_at": r["created_at"],
                 "address": {
-                    "street_and_number": r["street_and_number"],
-                    "address_supplement": r["address_supplement"],
-                    "postcode": r["postcode"],
-                    "city": r["city"],
-                    "state": r["state"],
-                    "country": r["country"],
+                    "street_and_number": _null_to_none(r["street_and_number"]),
+                    "address_supplement": _null_to_none(r["address_supplement"]),
+                    "postcode": _null_to_none(r["postcode"]),
+                    "city": _null_to_none(r["city"]),
+                    "state": _null_to_none(r["state"]),
+                    "country": _null_to_none(r["country"]),
                 },
             }
             for r in rows
@@ -1047,19 +1174,19 @@ class SQLiteRepository:
             _cp_verified = row["verified"] if "verified" in row.keys() else 0
             cp = Counterparty(
                 id=row["cp_id"],
-                name=row["cp_name"],
+                name=_null_to_none(row["cp_name"]),
                 address=Address(
-                    street_and_number=row["street_and_number"],
-                    address_supplement=row["address_supplement"]
+                    street_and_number=_null_to_none(row["street_and_number"]),
+                    address_supplement=_null_to_none(row["address_supplement"])
                     if "address_supplement" in row.keys()
                     else None,
-                    postcode=row["postcode"],
-                    city=row["city"],
-                    state=row["state"],
-                    country=row["country"],
+                    postcode=_null_to_none(row["postcode"]),
+                    city=_null_to_none(row["city"]),
+                    state=_null_to_none(row["state"]),
+                    country=_null_to_none(row["country"]),
                 ),
-                tax_number=row["tax_number"],
-                vat_id=row["vat_id"],
+                tax_number=_null_to_none(row["tax_number"]),
+                vat_id=_null_to_none(row["vat_id"]),
                 verified=bool(_cp_verified),
             )
 
